@@ -42,16 +42,23 @@ These are choices, not omissions:
   allowed: a model chooses which rounds to look at, and never what any of them came to. Every
   number stays derived from the rounds. See CONTRIBUTING § rule 2, which names both callers and
   says what would have to be argued to add a third.
-- **Claude Code, Cursor, and Codex CLI.** Other agents follow once the round schema has proven
-  itself against these formats. Cursor transcripts do not record token usage or model names; those
-  rounds are collected and classified, and cost stays blank rather than invented — unless the
-  optional Cursor `stop` hook (`probez hook`) has recorded turn usage, which `collect` merges onto
-  matching parent-agent rounds. The hook is not retroactive: turns that finished before it was
-  installed stay without usage. Subagent usage is not in the hook payload and stays blank. Codex
-  rollouts often do record usage; cost still stays blank until a rate exists for that model. A
-  repository used by more than one agent is one project; `source` on the round is the filterable
-  dimension, not a second store. `--source` on collect selects which directories to scan; on read
-  commands it filters stored rounds and does not restrict discovery.
+- **Claude Code, Cursor, Codex CLI, GitHub Copilot CLI, and Visual Studio's GitHub Copilot Chat.**
+  Other agents follow once the round schema has proven itself against these formats. Cursor
+  transcripts do not record token usage or model names; those rounds are collected and classified,
+  and cost stays blank rather than invented — unless the optional Cursor `stop` hook (`probez hook`)
+  has recorded turn usage, which `collect` merges onto matching parent-agent rounds. The hook is not
+  retroactive: turns that finished before it was installed stay without usage. Subagent usage is not
+  in the hook payload and stays blank. Codex rollouts often do record usage; cost still stays blank
+  until a rate exists for that model. Copilot CLI's `events.jsonl` gives a real output-token count
+  per round but only a cumulative, session-wide input-token total — too coarse to attribute to one
+  round — so, with no hook to close the gap, Copilot rounds keep usage blank the same way pre-hook
+  Cursor rounds do. Visual Studio's GitHub Copilot Chat persists as the same `copilot` source from a
+  different file — a MessagePack session written inside the project itself rather than under a
+  per-user directory — and gives neither a per-turn timestamp nor any token count at all, so those
+  rounds stay unmeasured throughout. A repository used by more than one agent is one project;
+  `source` on the round is the filterable dimension, not a second store. `--source` on collect
+  selects which directories to scan; on read commands it filters stored rounds and does not restrict
+  discovery.
 
 ## Users
 
@@ -123,7 +130,7 @@ One JSON object per LLM round, appended to `~/.probez/projects/<project>/rounds.
 | --- | --- |
 | `session`, `task`, `round` | Group rounds into tasks and order them |
 | `agent` | Separate the main agent from subagent work (`main` \| `sub`). Not which product produced the session |
-| `source` | Which product produced the session (`claude-code` \| `cursor` \| `codex` \| `unknown`). Stamped at collect from the session; missing or unrecognised is `unknown`, never assumed Claude. The query language's `source:claude` matches persisted `claude-code` |
+| `source` | Which product produced the session (`claude-code` \| `cursor` \| `codex` \| `copilot` \| `unknown`). Stamped at collect from the session; missing or unrecognised is `unknown`, never assumed Claude. The query language's `source:claude` matches persisted `claude-code` |
 | `commit` | Which state of the tree a task was asked against, read at collect time from git's HEAD reflog, and from the commit history behind it for a task older than that log reaches |
 | `in_tokens`, `out_tokens`, `ms` | Weight each category, giving the percentages |
 | `in_uncached`, `in_cache_write`, `in_cache_read` | The three price differently, so the sum alone says little about cost |
@@ -149,7 +156,9 @@ opened, `504799b8/a8261ff4` for one it handed off. Codex names a subagent on `se
 `agent` is read from that metadata rather than from a path. A subagent is a separate context with
 its own model and its own bill, so it is a session of its own and its rounds are never folded into
 the totals of the session that delegated it; what a session handed off is reported beside what it
-did, not inside it.
+did, not inside it. Copilot CLI's `events.jsonl` names no equivalent convention, so subagent
+delegation is not modelled for it: every Copilot round is `agent: "main"`. Neither does Visual
+Studio's GitHub Copilot Chat, for the same reason.
 
 **Pricing is not in the round.** A round records tokens; what they cost depends on rates that change
 and that differ per contract, so they live in `~/.probez/pricing.json` and are applied at read time.
@@ -595,8 +604,9 @@ names both callers and what would have to be argued to add a third.
 
 ## Agent source as a dimension
 
-The project boundary is the checkout. Claude Code, Cursor and Codex sessions in the same repository
-are one project; `source` on the round is which product wrote the session. `--source` on collect
+The project boundary is the checkout. Claude Code, Cursor, Codex, Copilot CLI and Visual Studio
+Copilot Chat sessions in the same repository are one project; `source` on the round is which
+product wrote the session. `--source` on collect
 selects which directories to scan. On read commands it filters stored rounds and is not passed
 through to discovery. `source:claude` matches persisted `claude-code`. A sniff that does not
 recognise the transcript, or an import with no field, is `unknown` — never assumed Claude. The

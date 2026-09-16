@@ -38,7 +38,7 @@ cd ~/any/project-you-work-in
 probez collect
 ```
 
-It reads [Claude Code](https://claude.com/claude-code) sessions from `~/.claude/projects`, [Cursor](https://cursor.com) transcripts from `~/.cursor/projects`, and [Codex](https://github.com/openai/codex) CLI rollouts from `~/.codex/sessions` (or `$CODEX_HOME/sessions`), then writes
+It reads [Claude Code](https://claude.com/claude-code) sessions from `~/.claude/projects`, [Cursor](https://cursor.com) transcripts from `~/.cursor/projects`, [Codex](https://github.com/openai/codex) CLI rollouts from `~/.codex/sessions` (or `$CODEX_HOME/sessions`), and [GitHub Copilot](https://github.com/github/copilot-cli) CLI sessions from `~/.copilot/session-state` (or `$COPILOT_HOME/session-state`), then writes
 one record per LLM round under `~/.probez`. Run it again whenever you want to catch up — it reads
 only what changed. `probez collect --all` does every project on the machine at once, and a
 project it cannot collect is reported and stepped over rather than ending the run — the others are
@@ -47,8 +47,16 @@ used in more than one agent is one project. Cursor transcripts omit token usage;
 `probez hook --install` once so Cursor's stop hook records them, then `collect` attaches the
 counts. The hook is not retroactive — only turns after it is installed get Tokens and Cost;
 `collect` cannot invent usage for older Cursor sessions. Without the hook those rounds stay
-outside Tokens and Cost. Each round records which product produced it; filter with `--source` or
-`source:` rather than treating agents as separate projects.
+outside Tokens and Cost. Copilot CLI's own log gives a real output-token count per round but only
+a cumulative, session-wide input-token total — too coarse to attribute to one round without
+misreporting cost — so Copilot rounds stay outside Tokens and Cost too, with no hook to close the
+gap. Visual Studio's GitHub Copilot Chat is read too, from `<project>/.vs/<solution>/copilot-chat`
+inside the project itself rather than from a per-user directory — there is nowhere to list every
+project it has opened, so naming the project by path (or running `probez collect` inside it) is
+what picks these sessions up; `--all` does not. That file has no per-turn timestamp, no token
+counts, and Copilot's reasoning is encrypted at rest, so those stay unmeasured the same way. Each
+round records which product produced it; filter with `--source` or `source:` rather than treating
+agents as separate projects.
 
 **3. Look at what came back**, in the browser or in the terminal:
 
@@ -86,7 +94,7 @@ rounds that matched lit and the rest of the task drawn around them — the point
 task* the matches fall, which a filtered list cannot show. The bar starts scoped to whatever page
 you were on; the chip beside the query is what widens it to the whole store. The Source control
 next to the bar filters the page you are on — same project, that agent's sessions. Typing
-`source:claude` (or cursor, or codex) in the query bar is still a search. Neither changes what Sync
+`source:claude` (or cursor, codex, or copilot) in the query bar is still a search. Neither changes what Sync
 collects.
 
 **A project** — where its work went, what each kind of work cost, and the sessions it happened in.
@@ -254,7 +262,7 @@ Lists take `--limit` and always say how many rows they withheld. `rounds` filter
 `clear` takes `--all`, `--before` and `--yes`, and `collect` takes `--since`.
 `export` takes `--bundle`, `--darken` and `--out`, and `import` takes `--as`.
 `--source` on `collect` and `projects` selects which agent directories to scan (Claude Code, Cursor,
-Codex, or all). On the read commands — `sessions`, `tasks`, `rounds`, `analyze`, `tools`, `find`,
+Codex, Copilot, or all). On the read commands — `sessions`, `tasks`, `rounds`, `analyze`, `tools`, `find`,
 `trails`, `questions`, `view` — the same flag filters already-collected rounds and does not restrict
 discovery. `source:claude` is that filter in a query, and matches persisted `claude-code`. `--json`
 works everywhere. `probez --help` lists every flag under the command it belongs to.
@@ -269,6 +277,8 @@ Cursor's `stop` hook writes each parent-agent turn's tokens into `~/.probez/curs
 The next `probez collect` attaches them to matching Cursor tasks — split across tool-using rounds
 by the same weights as the work categories, not onto a trailing prose-only reply. Claude and Codex
 usage still come only from their own logs. Without the hook, Cursor Tokens and Cost stay blank.
+Copilot CLI has no hook to install: its log gives no per-round input-token count at all, so
+Copilot Tokens and Cost stay blank regardless.
 Past Cursor turns from before the hook was installed stay blank too — collect does not backfill
 them.
 

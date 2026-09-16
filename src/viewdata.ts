@@ -2,7 +2,7 @@ import { readFile, stat } from 'node:fs/promises'
 import { join } from 'node:path'
 
 import { safeSessionFilename } from './agents/paths.js'
-import { discoverProjects } from './discover.js'
+import { discoverProjects, mergeCopilotVsSessions } from './discover.js'
 import { failed } from './errors.js'
 import {
   analysisRecords,
@@ -352,26 +352,26 @@ export class NotFound extends Error {}
 export class BadRequest extends Error {}
 
 /**
- * The three agents the view's Source control can pin a page to.
+ * The four agents the view's Source control can pin a page to.
  *
  * `unknown` is a query value (`source:unknown`), not a page filter: the dropdown does not offer it,
  * and a `?source=` that names it is refused the same way any other misspelling is.
  */
-export const PAGE_SOURCES = ['claude', 'cursor', 'codex'] as const
+export const PAGE_SOURCES = ['claude', 'cursor', 'codex', 'copilot'] as const
 export type PageSource = (typeof PAGE_SOURCES)[number]
 
 /**
  * The agent a `?source=` query names, or null when the page is unfiltered.
  *
- * Absent, empty and `all` are the same: every agent. Anything else that is not one of the three
+ * Absent, empty and `all` are the same: every agent. Anything else that is not one of the four
  * dropdown values is a bad request rather than silently showing All.
  */
 export function pageSourceOf(value: string | null | undefined): PageSource | null {
   if (value === null || value === undefined || value === '') return null
   const wanted = value.trim().toLowerCase()
   if (wanted === 'all') return null
-  if (wanted === 'claude' || wanted === 'cursor' || wanted === 'codex') return wanted
-  throw new BadRequest(`source must be claude, cursor or codex, got "${value}"`)
+  if (wanted === 'claude' || wanted === 'cursor' || wanted === 'codex' || wanted === 'copilot') return wanted
+  throw new BadRequest(`source must be claude, cursor, codex or copilot, got "${value}"`)
 }
 
 /**
@@ -1424,6 +1424,7 @@ export async function syncProject(
   claudeDir: string,
   cursorDir: string,
   codexDir: string,
+  copilotDir: string,
   slug: string,
 ): Promise<SyncResult> {
   const held = running.get(slug)
@@ -1435,8 +1436,12 @@ export async function syncProject(
 
     // Every agent, always. A page `?source=` or a `source:` query is a display filter and must
     // not decide what this collects.
-    const projects = await discoverProjects({ claudeDir, cursorDir, codexDir })
-    const source = projects.find((project) => slugFor(project) === slug) ?? null
+    const projects = await discoverProjects({ claudeDir, cursorDir, codexDir, copilotDir })
+    // Visual Studio's Copilot Chat sessions live inside the project itself, not under a directory
+    // the sweep above walks, so they only surface once a path is known — which, for a project this
+    // store already has, is `stored.path`. See `mergeCopilotVsSessions`.
+    const merged = stored.path !== null ? await mergeCopilotVsSessions(projects, stored.path) : projects
+    const source = merged.find((project) => slugFor(project) === slug) ?? null
 
     let collected: CollectResult | null = null
     if (source !== null) collected = await collectProject(source, dataDir)

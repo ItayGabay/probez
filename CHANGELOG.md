@@ -10,6 +10,28 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html). It is pub
 
 ### Added
 
+- **GitHub Copilot CLI as a fourth source.** `probez collect` reads sessions from
+  `~/.copilot/session-state` (or `$COPILOT_HOME/session-state`), one directory per session, each
+  carrying a `workspace.yaml` naming the cwd it ran in and an `events.jsonl` event stream. A round
+  is one `assistant.message`; a tool's result becomes the next round's leading input event, the
+  same convention Claude and Codex use. Tool calls carry real input and result data, including
+  success/failure. Usage stays null throughout: the log gives a real output-token count per round
+  but only a cumulative, session-wide input-token total, too coarse to attribute to one round
+  without misreporting cost — so, like Cursor without its hook, Copilot rounds keep Tokens and Cost
+  blank. `--source copilot` / `source:copilot` filters it like any other agent. Subagent
+  delegation is not modelled: every Copilot round is `agent: "main"`.
+
+- **Visual Studio's GitHub Copilot Chat**, read from the MessagePack session files it writes under
+  `<project>/.vs/<solution>/copilot-chat/<hash>/sessions` — a different surface from Copilot CLI's
+  `events.jsonl`, both persisted as the same `copilot` source. A minimal, dependency-free
+  MessagePack decoder (`msgpack.ts`) reads exactly the type bytes real session files use; an
+  extension type it has never seen comes back tagged rather than misread. A round is one response
+  turn, grouped with its request by `CorrelationId`; a regenerated answer yields one round per
+  response, all under the same task. The format gives no per-turn timestamp, so only a session's
+  first round gets a real one, and none of it carries token usage. There is no per-user directory
+  listing every project Visual Studio has opened, so this source is never part of a global sweep or
+  `--all` — only naming a project by path (or running `probez collect` inside it) surfaces it.
+
 - **Cursor stop-hook token usage.** `probez hook` reads Cursor's official `stop` (or
   `afterAgentResponse`) payload from stdin and appends it under `~/.probez/cursor-usage.jsonl`.
   `probez hook --install` wires `~/.cursor/hooks.json` so Cursor calls that command when an agent

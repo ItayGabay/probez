@@ -53,6 +53,7 @@ export function SourceFilter({
         <option value="claude">Claude</option>
         <option value="cursor">Cursor</option>
         <option value="codex">Codex</option>
+        <option value="copilot">Copilot</option>
       </select>
     </label>
   )
