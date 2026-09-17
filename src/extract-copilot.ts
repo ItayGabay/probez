@@ -35,6 +35,76 @@ function asText(value: unknown): string | null {
   return typeof value === 'string' && value !== '' ? value : null
 }
 
+function asNum(value: unknown): number {
+  return typeof value === 'number' && Number.isFinite(value) ? value : 0
+}
+
+function asIntOrNull(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null
+}
+
+/** One model's usage as `session.shutdown` reports it: a total for everything since the segment's
+ * last `session.start`/`session.resume`, not a per-round figure. */
+interface SegmentUsage {
+  inputTokens: number
+  cacheReadTokens: number
+  cacheWriteTokens: number
+}
+
+function usageOf(entry: unknown): SegmentUsage | null {
+  if (!entry || typeof entry !== 'object') return null
+  const usage = (entry as Json).usage
+  if (!usage || typeof usage !== 'object') return null
+  const u = usage as Json
+  return {
+    inputTokens: asNum(u.inputTokens),
+    cacheReadTokens: asNum(u.cacheReadTokens),
+    cacheWriteTokens: asNum(u.cacheWriteTokens),
+  }
+}
+
+/**
+ * Spread a segment's cumulative usage across the rounds it covers.
+ *
+ * Only `data.outputTokens` is ever a per-round fact; everything else `session.shutdown` reports is
+ * a total. Splitting it by each round's own (real) output-token share is the best available
+ * evidence for how it was earned, not a claim that it is exact — an even split across the segment
+ * would misprice a segment as sharply lopsided as a one-line reply that triggers a long tool-heavy
+ * answer, and the store has no finer signal than output size to divide by. A round with no output
+ * count at all (missing from a real record, never observed but not impossible) is left out of the
+ * split entirely rather than charged an invented zero — see the `measured` filter below.
+ *
+ * `inputTokens` is read as the *whole* prompt a request sent, cache reads and writes already
+ * counted inside it, not stacked on top of it: a segment's `currentTokens` (`systemTokens` +
+ * `conversationTokens` + `toolDefinitionsTokens`, all in the same `session.shutdown` record) sits
+ * in the same range as `inputTokens` only under that reading, and the other reading — cache reads
+ * added on top — would put a segment's real input near what its entire context window holds on
+ * every one of several requests, which a coding session does not do. GitHub does not document the
+ * field, so this is the interpretation the real numbers hold up under, not a published fact.
+ *
+ * The one cache-write number GitHub reports is not split into Anthropic's 5-minute/1-hour tiers,
+ * so it is charged at the cheaper 5-minute rate rather than guessed at the dearer one — the same
+ * call `extract.ts`'s `applyUsage` makes for an older Claude record with the same gap.
+ */
+function applyCopilotUsage(rounds: Round[], usage: SegmentUsage): void {
+  const measured = rounds.filter((r) => typeof r.out_tokens === 'number')
+  if (measured.length === 0) return
+  const totalOut = measured.reduce((sum, r) => sum + (r.out_tokens as number), 0)
+  const uncached = Math.max(0, usage.inputTokens - usage.cacheReadTokens - usage.cacheWriteTokens)
+  for (const round of measured) {
+    const share = totalOut > 0 ? (round.out_tokens as number) / totalOut : 1 / measured.length
+    const roundUncached = Math.round(uncached * share)
+    const roundCacheRead = Math.round(usage.cacheReadTokens * share)
+    const roundCacheWrite = Math.round(usage.cacheWriteTokens * share)
+    round.in_uncached = roundUncached
+    round.in_cache_read = roundCacheRead
+    round.in_cache_write = roundCacheWrite
+    round.in_cache_write_5m = roundCacheWrite
+    round.in_cache_write_1h = 0
+    round.in_tokens = roundUncached + roundCacheRead + roundCacheWrite
+  }
+}
+
 function dataOf(record: Json): Json {
   const raw = record.data
   return raw && typeof raw === 'object' && !Array.isArray(raw) ? (raw as Json) : {}
@@ -88,12 +158,16 @@ interface ToolEntry {
  * in the format guarantees that stays true, and building directly off `assistant.message` is
  * correct either way.
  *
- * Usage is never set. `events.jsonl` gives a real output-token count per turn but only a
- * cumulative, per-model running total for input tokens, checkpointed at `session.shutdown` rather
- * than scoped to one round — and `costOf` (`src/pricing.ts`) treats a missing input count as zero,
- * not unmeasured, so recording the output half alone would silently price a round far under what
- * it actually cost. Left null throughout, the same call Cursor's extractor makes for the same
- * reason: an honest "not recorded" beats a plausible-looking partial number.
+ * Output tokens are a per-round fact (`data.outputTokens`) and are read directly. Input tokens are
+ * not: `events.jsonl` gives only a cumulative, per-model total at `session.shutdown`, covering every
+ * round since the segment's last `session.start`/`session.resume` — so it is read there and spread
+ * back across that segment's rounds by `applyCopilotUsage`, weighted by each round's own output
+ * share. A segment that never reaches a clean shutdown (the CLI killed mid-conversation, or resumed
+ * again before one) reports no usage at all for the rounds in it, which is the ordinary case for
+ * `--resume`, not a rare one — real sessions on this machine hold segments that never shut down
+ * beside ones that did. `costOf` (`src/pricing.ts`) refuses to price a round with any of its five
+ * counts still null, specifically because this file can now leave output known and input unknown on
+ * the same round.
  *
  * Subagent delegation is not modelled: nothing observed in a real session names a nested-session
  * convention the way Claude/Cursor's `subagents/` path or Codex's `session_meta.source` does.
@@ -116,6 +190,9 @@ export async function extractCopilotSession(
   let taskUsed = false
   let taskStart: number | null = null
   let index = 0
+  /** Rounds built since the last `session.start`/`session.resume`, still waiting on a shutdown to
+   * price them. Reset there, or at the next start/resume if none ever came. */
+  let segment: Round[] = []
 
   const noteOutput = (timestamp: string | null): void => {
     const ts = parseTs(timestamp)
@@ -145,6 +222,28 @@ export async function extractCopilotSession(
     if (kind === 'session.start' || kind === 'session.resume') {
       const named = asText(data.selectedModel)
       if (named !== null) model = named
+      // A new segment begins here. If the last one never reached a shutdown, its rounds simply
+      // never get priced — the same honest gap a `Ctrl+C` mid-conversation always leaves.
+      segment = []
+      continue
+    }
+
+    if (kind === 'session.shutdown') {
+      const metrics = data.modelMetrics
+      if (metrics && typeof metrics === 'object' && !Array.isArray(metrics)) {
+        const byModel = new Map<string, Round[]>()
+        for (const round of segment) {
+          if (round.model === null) continue
+          const bucket = byModel.get(round.model)
+          if (bucket === undefined) byModel.set(round.model, [round])
+          else bucket.push(round)
+        }
+        for (const [modelName, group] of byModel) {
+          const usage = usageOf((metrics as Json)[modelName])
+          if (usage !== null) applyCopilotUsage(group, usage)
+        }
+      }
+      segment = []
       continue
     }
 
@@ -225,7 +324,7 @@ export async function extractCopilotSession(
       in_cache_write_5m: null,
       in_cache_write_1h: null,
       in_cache_read: null,
-      out_tokens: null,
+      out_tokens: asIntOrNull(data.outputTokens),
       compaction: null,
       mcp_server: null,
       mcp_tool: null,
@@ -284,6 +383,7 @@ export async function extractCopilotSession(
 
     applyTiming(round)
     rounds.push(round)
+    segment.push(round)
     noteOutput(timestamp)
   }
 

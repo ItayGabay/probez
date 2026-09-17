@@ -61,12 +61,25 @@ export const CONTEXT_WINDOWS: Record<string, number> = {
 const SNAPSHOT = /[-@]\d{8}$/
 
 /**
+ * A point version written the way a marketing name spells it: `4.5`, not `4-5`.
+ *
+ * GitHub Copilot CLI's `selectedModel`/`currentModel` record `claude-haiku-4.5` — confirmed from a
+ * real session — where the published tables, and every other agent, spell the same model
+ * `claude-haiku-4-5`. Anchored to digits on both sides so a real hyphenated id already in the
+ * table, such as `gpt-5.6-sol`, is never reached by this at all: `resolveModel` tries the exact
+ * spelling first, and that one already matches.
+ */
+const DOTTED_VERSION = /(\d)\.(\d)/g
+
+/**
  * The id a table actually holds for a model, given the id an agent recorded.
  *
  * Agents do not all record the same spelling of the same model. Claude Code writes
  * `claude-haiku-4-5-20251001` where the published tables say `claude-haiku-4-5`, and a store here
  * held 6,196 rounds priced at nothing for exactly that reason — not a model anybody was missing, a
- * model nobody could look up. Stripping the snapshot is the whole of the fix.
+ * model nobody could look up. Stripping the snapshot is the first fix that bought; normalizing a
+ * dotted point version, tried next against whatever the snapshot strip left, is the second — the
+ * same failure in a different spelling, this time from Copilot CLI.
  *
  * Deliberately no further than that. There is no family-prefix fallback, so a `claude-opus-6-…`
  * nobody has priced yet stays unpriced rather than being charged at Opus 5's rate. That is the same
@@ -81,7 +94,9 @@ export function resolveModel(
   if (model === null) return null
   if (known(model)) return model
   const base = model.replace(SNAPSHOT, '')
-  return base !== model && known(base) ? base : null
+  if (base !== model && known(base)) return base
+  const dotted = base.replace(DOTTED_VERSION, '$1-$2')
+  return dotted !== base && known(dotted) ? dotted : null
 }
 
 /** The window a model has, or null when the model is unknown or unnamed. */

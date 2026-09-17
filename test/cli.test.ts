@@ -1058,7 +1058,10 @@ test('collect --source copilot reads Copilot CLI sessions and not Claude', () =>
 
   const store = join(env.dataDir, 'projects', readdirSync(join(env.dataDir, 'projects'))[0]!)
   const stored = storedRounds(store)
-  assert.ok(stored.every((round) => round.model === 'claude-haiku-4.5' && round.in_tokens === null))
+  assert.ok(stored.every((round) => round.model === 'claude-haiku-4.5'))
+  // The fixture's one segment runs straight through to its session.shutdown, whose modelMetrics
+  // usage gets split across these rounds by output share — see extract-copilot.test.ts.
+  assert.ok(stored.every((round) => typeof round.in_tokens === 'number'))
   const manifest = JSON.parse(readFileSync(join(store, 'manifest.json'), 'utf8')) as { sources: string[] }
   assert.deepEqual(manifest.sources, ['copilot'])
 
