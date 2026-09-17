@@ -6,9 +6,9 @@
  * dropdown writes into `q`.
  */
 
-const SOURCE_ATOM = /(?:^|\s)-?source:(?:claude-code|claude|cursor|codex|unknown)\b/gi
+const SOURCE_ATOM = /(?:^|\s)-?source:(?:claude-code|claude|cursor|codex|copilot|unknown)\b/gi
 
-export const SOURCE_CHOICES = ['claude', 'cursor', 'codex'] as const
+export const SOURCE_CHOICES = ['claude', 'cursor', 'codex', 'copilot'] as const
 
 export type SourceChoice = (typeof SOURCE_CHOICES)[number]
 
@@ -19,14 +19,22 @@ export function setSourceQuery(text: string, alias: string | null): string {
 }
 
 export function sourceQueryOf(text: string): string | null {
-  const matches = [...text.matchAll(/\bsource:(claude-code|claude|cursor|codex|unknown)\b/gi)]
+  const matches = [...text.matchAll(/\bsource:(claude-code|claude|cursor|codex|copilot|unknown)\b/gi)]
   if (matches.length === 0) return null
   const raw = matches[matches.length - 1]![1]!.toLowerCase()
   return raw === 'claude-code' ? 'claude' : raw
 }
 
 export function sourceAlias(
-  source: 'claude-code' | 'cursor' | 'codex' | 'unknown',
+  source: 'claude-code' | 'cursor' | 'codex' | 'copilot' | 'unknown',
 ): string {
   return source === 'claude-code' ? 'claude' : source
+}
+
+/** The name a source reads as in prose, keyed by its alias. One table, so a fifth source is one edit. */
+export const SOURCE_LABEL: Record<SourceChoice, string> = {
+  claude: 'Claude',
+  cursor: 'Cursor',
+  codex: 'Codex',
+  copilot: 'Copilot',
 }

@@ -7,10 +7,10 @@ import type { AgentSource, RoundSource } from '../types.js'
 /**
  * Which agents to collect from.
  *
- * `both` is the historic default and still means every agent probez knows, including Codex.
- * `all` is the same thing under a name that does not count them.
+ * `both` is the historic default and still means every agent probez knows, including Codex and
+ * Copilot. `all` is the same thing under a name that does not count them.
  */
-export type SourceFilter = 'claude' | 'cursor' | 'codex' | 'both' | 'all'
+export type SourceFilter = 'claude' | 'cursor' | 'codex' | 'copilot' | 'both' | 'all'
 
 export function defaultClaudeDir(): string {
   return join(homedir(), '.claude', 'projects')
@@ -30,6 +30,20 @@ export function defaultCodexDir(): string {
   const override = process.env.CODEX_HOME?.trim()
   const home = override !== undefined && override !== '' ? override : join(homedir(), '.codex')
   return join(home, 'sessions')
+}
+
+/**
+ * GitHub Copilot CLI sessions, under `$COPILOT_HOME/session-state` when that is set, otherwise
+ * `~/.copilot/session-state`.
+ *
+ * One directory per session (`<id>/events.jsonl`), each carrying its own `workspace.yaml` with the
+ * cwd it ran in — no per-project folder to walk, the same shape Codex's dated tree has. Discovery
+ * groups by that cwd.
+ */
+export function defaultCopilotDir(): string {
+  const override = process.env.COPILOT_HOME?.trim()
+  const home = override !== undefined && override !== '' ? override : join(homedir(), '.copilot')
+  return join(home, 'session-state')
 }
 
 function isDir(path: string): boolean {
@@ -128,7 +142,7 @@ export function sessionIdFromFilename(name: string): string {
 
 export function parseSourceFilter(value: string | undefined): SourceFilter {
   if (value === undefined || value === 'both' || value === 'all') return value === 'all' ? 'all' : 'both'
-  if (value === 'claude' || value === 'cursor' || value === 'codex') return value
+  if (value === 'claude' || value === 'cursor' || value === 'codex' || value === 'copilot') return value
   return 'both'
 }
 
@@ -148,8 +162,12 @@ export function wantsCodex(source: SourceFilter): boolean {
   return wantsEvery(source) || source === 'codex'
 }
 
+export function wantsCopilot(source: SourceFilter): boolean {
+  return wantsEvery(source) || source === 'copilot'
+}
+
 export function isAgentSource(value: string): value is AgentSource {
-  return value === 'claude-code' || value === 'cursor' || value === 'codex'
+  return value === 'claude-code' || value === 'cursor' || value === 'codex' || value === 'copilot'
 }
 
 export function isRoundSource(value: string): value is RoundSource {
@@ -160,7 +178,7 @@ export function isRoundSource(value: string): value is RoundSource {
  * The names `source:` and `--source` accept, including `unknown` for data whose origin was not
  * determined. `claude` is the alias for the persisted value `claude-code`.
  */
-export const SOURCE_ALIASES = ['claude', 'cursor', 'codex', 'unknown'] as const
+export const SOURCE_ALIASES = ['claude', 'cursor', 'codex', 'copilot', 'unknown'] as const
 
 export type SourceAlias = (typeof SOURCE_ALIASES)[number]
 
@@ -182,7 +200,7 @@ export function aliasOfSource(source: RoundSource): SourceAlias {
 export function sourceFromAlias(value: string): RoundSource | null {
   const wanted = value.toLowerCase()
   if (wanted === 'claude' || wanted === 'claude-code') return 'claude-code'
-  if (wanted === 'cursor' || wanted === 'codex' || wanted === 'unknown') return wanted
+  if (wanted === 'cursor' || wanted === 'codex' || wanted === 'copilot' || wanted === 'unknown') return wanted
   return null
 }
 
@@ -192,7 +210,14 @@ export function roundSourceOf(round: { source?: string }): RoundSource {
 }
 
 export function isSourceFilter(value: string): value is SourceFilter {
-  return value === 'claude' || value === 'cursor' || value === 'codex' || value === 'both' || value === 'all'
+  return (
+    value === 'claude' ||
+    value === 'cursor' ||
+    value === 'codex' ||
+    value === 'copilot' ||
+    value === 'both' ||
+    value === 'all'
+  )
 }
 
 /**
@@ -201,6 +226,6 @@ export function isSourceFilter(value: string): value is SourceFilter {
  * `both` and `all` are discovery spellings and mean "do not filter the store".
  */
 export function storeSourceAlias(filter: SourceFilter): SourceAlias | null {
-  if (filter === 'claude' || filter === 'cursor' || filter === 'codex') return filter
+  if (filter === 'claude' || filter === 'cursor' || filter === 'codex' || filter === 'copilot') return filter
   return null
 }

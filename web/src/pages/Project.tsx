@@ -12,6 +12,7 @@ import { TRAILS_ARIA, trailsExplained } from '../components/TrailPanel'
 import { ago, count, duration, money, percent, shortId, shortModel, tokens, when } from '../format'
 import { go, href, linkProps, withSource } from '../router'
 import type { SourceChoice } from '../router'
+import { SOURCE_LABEL } from '../source'
 import { useData } from '../useData'
 import type { ReactElement } from 'react'
 
@@ -168,7 +169,7 @@ export function Project({
                 <p className="note">
                   {source === null
                     ? 'No sessions in this project.'
-                    : `No ${source === 'claude' ? 'Claude' : source === 'cursor' ? 'Cursor' : 'Codex'} sessions in this project.`}
+                    : `No ${SOURCE_LABEL[source]} sessions in this project.`}
                 </p>
               ) : (
               <table>

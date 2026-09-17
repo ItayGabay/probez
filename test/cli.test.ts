@@ -24,7 +24,7 @@ import { fileURLToPath } from 'node:url'
  * The rules these cover live in `main()`'s dispatch rather than in a pure function, so they are
  * exercised the way a user meets them: by running the command and reading what came back. Every
  * test builds its own source directory and store, so nothing depends on the machine's real
- * `~/.claude`, `~/.cursor`, `~/.codex` or `~/.probez`.
+ * `~/.claude`, `~/.cursor`, `~/.codex`, `~/.copilot` or `~/.probez`.
  */
 
 const here = dirname(fileURLToPath(import.meta.url))
@@ -34,6 +34,7 @@ const CURSOR_FIXTURE = join(here, '..', '..', 'test', 'fixtures', 'cursor-sessio
 const CURSOR_SUB = join(here, '..', '..', 'test', 'fixtures', 'cursor-subagent.jsonl')
 const CODEX_FIXTURE = join(here, '..', '..', 'test', 'fixtures', 'codex-session.jsonl')
 const CODEX_SUB = join(here, '..', '..', 'test', 'fixtures', 'codex-subagent.jsonl')
+const COPILOT_FIXTURE = join(here, '..', '..', 'test', 'fixtures', 'copilot-session.jsonl')
 const WALK_FIXTURE = join(here, '..', '..', 'test', 'fixtures', 'walk-session.jsonl')
 const SUBAGENT_FIXTURE = join(here, '..', '..', 'test', 'fixtures', 'claude-subagent.jsonl')
 
@@ -61,6 +62,7 @@ function makeSource(sessions: number, delegated = false): {
   claudeDir: string
   cursorDir: string
   codexDir: string
+  copilotDir: string
   dataDir: string
   project: string
 } {
@@ -70,11 +72,13 @@ function makeSource(sessions: number, delegated = false): {
   const claudeDir = join(root, 'claude')
   const cursorDir = join(root, 'cursor')
   const codexDir = join(root, 'codex')
+  const copilotDir = join(root, 'copilot')
   const dataDir = join(root, 'data')
   const project = join(root, 'work')
   mkdirSync(project, { recursive: true })
   mkdirSync(cursorDir, { recursive: true })
   mkdirSync(codexDir, { recursive: true })
+  mkdirSync(copilotDir, { recursive: true })
   const sourceDir = join(claudeDir, 'encoded-project-name')
   mkdirSync(sourceDir, { recursive: true })
 
@@ -92,7 +96,7 @@ function makeSource(sessions: number, delegated = false): {
       readFileSync(SUBAGENT_FIXTURE, 'utf8').replaceAll('/tmp/demo', project),
     )
   }
-  return { claudeDir, cursorDir, codexDir, dataDir, project }
+  return { claudeDir, cursorDir, codexDir, copilotDir, dataDir, project }
 }
 
 function collect(env: ReturnType<typeof makeSource>, extra: string[] = []): Run {
@@ -107,6 +111,8 @@ function collect(env: ReturnType<typeof makeSource>, extra: string[] = []): Run 
     env.cursorDir,
     '--codex-dir',
     env.codexDir,
+    '--copilot-dir',
+    env.copilotDir,
     ...extra,
   ])
 }
@@ -126,6 +132,8 @@ function read(env: ReturnType<typeof makeSource>, args: string[]): Run {
     env.cursorDir,
     '--codex-dir',
     env.codexDir,
+    '--copilot-dir',
+    env.copilotDir,
   ])
 }
 
@@ -526,6 +534,8 @@ function collectAll(env: ReturnType<typeof makeSource>, extra: string[] = []): R
     env.cursorDir,
     '--codex-dir',
     env.codexDir,
+    '--copilot-dir',
+    env.copilotDir,
   ])
 }
 
@@ -799,6 +809,8 @@ test('a project exported from one store imports into another and reads the same'
     join(theirs, 'none-cursor'),
     '--codex-dir',
     join(theirs, 'none-codex'),
+    '--copilot-dir',
+    join(theirs, 'none-copilot'),
   ])
   assert.equal(after.status, 0, after.stderr)
   // Every figure the analysis prints, in order. The first line names the project and differs: one
@@ -844,6 +856,7 @@ test('a darkened export reads the same, and says nothing', () => {
     '--claude-dir', join(theirs, 'none'),
     '--cursor-dir', join(theirs, 'none-cursor'),
     '--codex-dir', join(theirs, 'none-codex'),
+    '--copilot-dir', join(theirs, 'none-copilot'),
   ])
   assert.equal(after.status, 0, after.stderr)
   // The header says so on every read, not only at import.
@@ -941,12 +954,14 @@ test('collect merges Claude and Cursor sessions for the same checkout', () => {
 test('--help names the agents', () => {
   const help = run(['--help'])
   assert.equal(help.status, 0, help.stderr)
-  assert.match(help.stdout, /--source claude\|cursor\|codex\|all/)
+  assert.match(help.stdout, /--source claude\|cursor\|codex\|copilot\|all/)
   assert.match(help.stdout, /Does not collect/)
   assert.match(help.stdout, /source:claude/)
   assert.match(help.stdout, /--cursor-dir/)
   assert.match(help.stdout, /--codex-dir/)
   assert.match(help.stdout, /Codex CLI rollouts/)
+  assert.match(help.stdout, /--copilot-dir/)
+  assert.match(help.stdout, /GitHub Copilot CLI sessions/)
 })
 
 test('collecting a Cursor project twice does not duplicate rounds', () => {
@@ -1022,6 +1037,34 @@ test('collect merges Claude and Codex sessions for the same checkout', () => {
   const stamped = storedRounds(store)
   assert.ok(stamped.some((round) => round.source === 'claude-code'))
   assert.ok(stamped.some((round) => round.source === 'codex'))
+})
+
+function makeCopilotSource(): ReturnType<typeof makeSource> {
+  const env = makeSource(0)
+  const sessionDir = join(env.copilotDir, 'aaaa1111-0000-0000-0000-000000000000')
+  mkdirSync(sessionDir, { recursive: true })
+  writeFileSync(join(sessionDir, 'workspace.yaml'), `id: aaaa1111\ncwd: ${env.project}\nname: session\n`)
+  writeFileSync(join(sessionDir, 'events.jsonl'), readFileSync(COPILOT_FIXTURE, 'utf8'))
+  return env
+}
+
+test('collect --source copilot reads Copilot CLI sessions and not Claude', () => {
+  const env = makeCopilotSource()
+  const onlyCopilot = collect(env, ['--source', 'copilot', '--json'])
+  assert.equal(onlyCopilot.status, 0, onlyCopilot.stderr)
+  const result = JSON.parse(onlyCopilot.stdout) as { rounds: number; sessions: number }
+  assert.equal(result.sessions, 1)
+  assert.equal(result.rounds, 3)
+
+  const store = join(env.dataDir, 'projects', readdirSync(join(env.dataDir, 'projects'))[0]!)
+  const stored = storedRounds(store)
+  assert.ok(stored.every((round) => round.model === 'claude-haiku-4.5' && round.in_tokens === null))
+  const manifest = JSON.parse(readFileSync(join(store, 'manifest.json'), 'utf8')) as { sources: string[] }
+  assert.deepEqual(manifest.sources, ['copilot'])
+
+  const onlyClaude = collect(env, ['--source', 'claude', '--json'])
+  assert.equal(onlyClaude.status, 1)
+  assert.match(onlyClaude.stderr, /no project matched|no agent sessions/)
 })
 
 function makeMixedSource(): ReturnType<typeof makeSource> {
@@ -1111,6 +1154,8 @@ test('--source on sessions filters stored rounds and does not restrict discovery
       emptyCursor,
       '--codex-dir',
       env.codexDir,
+      '--copilot-dir',
+      env.copilotDir,
     ],
     env.project,
   )
@@ -1390,6 +1435,8 @@ function find(env: ReturnType<typeof makeSource>, args: string[]): Run {
     env.cursorDir,
     '--codex-dir',
     env.codexDir,
+    '--copilot-dir',
+    env.copilotDir,
   ])
 }
 
@@ -1419,6 +1466,8 @@ test('`find` takes the query first and the project second', () => {
     env.cursorDir,
     '--codex-dir',
     env.codexDir,
+    '--copilot-dir',
+    env.copilotDir,
   ])
   assert.equal(everywhere.status, 0)
   // One project in this store, so naming it and searching all of it find the same rounds.

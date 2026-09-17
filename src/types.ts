@@ -72,14 +72,14 @@ export interface RoundEvent {
 }
 
 /** Which coding agent produced a session. Persisted as-is; the CLI aliases `claude-code` to `claude`. */
-export type AgentSource = 'claude-code' | 'cursor' | 'codex'
+export type AgentSource = 'claude-code' | 'cursor' | 'codex' | 'copilot'
 
 /**
  * What a stored round records as its agent origin.
  *
  * `unknown` is only for data whose origin could not be determined — a sniff that did not recognise
  * the transcript, an import with no field, a round written before this was collected. Live
- * collection always writes one of the three `AgentSource` values.
+ * collection always writes one of the four `AgentSource` values.
  */
 export type RoundSource = AgentSource | 'unknown'
 
@@ -207,6 +207,13 @@ export interface SessionFile {
   size: number
   mtimeMs: number
   source: RoundSource
+  /**
+   * Set only on a `copilot` session found under a project's own `.vs/` folder — Visual Studio's
+   * GitHub Copilot Chat, a MessagePack file with no per-project home directory to discover it from.
+   * That is a different shape from the CLI's `events.jsonl`, even though both persist as `copilot`;
+   * this is what tells `collectProject` which extractor to run.
+   */
+  vs?: true
 }
 
 /** A project the agent has been run in. */

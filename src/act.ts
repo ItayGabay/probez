@@ -299,7 +299,7 @@ export function pathsIn(command: string, exclude: Set<string> = new Set()): stri
 export function pathOf(input: unknown): string {
   if (input === null || typeof input !== 'object') return ''
   const record = input as Record<string, unknown>
-  for (const key of ['file_path', 'notebook_path', 'path', 'url']) {
+  for (const key of ['file_path', 'filePath', 'notebook_path', 'path', 'url', 'filename']) {
     const found = record[key]
     if (typeof found === 'string' && found !== '') return found
   }
@@ -541,6 +541,22 @@ const TOOL_VERBS: Record<string, Verb> = {
   // Waiting on a shell that has already been counted is the `sleep` of the tool layer.
   AwaitShell: 'noop',
   Await: 'noop',
+  // Visual Studio's GitHub Copilot Chat, read from the msgpack sessions `extract-copilot-vs.ts`
+  // decodes. `apply_patch` above already covers editing an existing file; the same one-row fix
+  // applies to the rest — these arrived as `unclassified/unknown` until named here.
+  get_currentfile: 'read',
+  get_file: 'read',
+  get_files_in_project: 'search',
+  get_projects_in_solution: 'search',
+  run_build: 'build',
+  create_file: 'write',
+  // GitHub Copilot CLI's own tool names (`extract-copilot.ts`), confirmed from a real session
+  // rather than guessed: `powershell` is handled above as a shell tool, so only its non-shell
+  // tools need a row. `report_intent` is the model narrating its next step with no file or command
+  // attached — the same shape as `TodoWrite`, so it gets the same verb.
+  create: 'write',
+  view: 'read',
+  report_intent: 'track',
 }
 
 /** Tools whose target is the query, not a file, however path-shaped their input looks. */
@@ -548,7 +564,8 @@ const TARGETLESS = new Set(['Grep', 'Glob', 'grep_files', 'list_dir', 'AskUserQu
   'TodoWrite', 'Agent', 'Task', 'EnterPlanMode', 'ExitPlanMode', 'update_plan', 'web_search',
   'SemanticSearch', 'rg', 'AskQuestion', 'CreatePlan', 'SwitchMode', 'UpdateCurrentStep',
   'updateCurrentStep', 'TaskList', 'TaskGet', 'TaskOutput', 'TaskStop', 'SendMessage',
-  'CallMcpTool', 'CallDynamicTool', 'GetMcpTools', 'GetDynamicTools', 'AwaitShell', 'Await'])
+  'CallMcpTool', 'CallDynamicTool', 'GetMcpTools', 'GetDynamicTools', 'AwaitShell', 'Await',
+  'get_currentfile', 'get_files_in_project', 'get_projects_in_solution', 'run_build', 'report_intent'])
 
 /**
  * A tool served by an MCP server.
@@ -586,7 +603,10 @@ export function actsOf(tool: ToolCall): Act[] {
 
   const path = TARGETLESS.has(name) ? '' : pathOf(tool.input)
   const external = name === 'WebSearch' || name === 'WebFetch' || name === 'web_search'
-  const one = act(verb, path, name, name === 'Write')
+  // `create`/`create_file` are Copilot CLI's and VS Copilot Chat's names for the one tool each has
+  // that always brings a file into existence, the same fact `Write` reports for Claude/Cursor's
+  // tool of the same shape.
+  const one = act(verb, path, name, name === 'Write' || name === 'create' || name === 'create_file')
   if (external) one.target = 'external'
   return [one]
 }

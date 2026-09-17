@@ -22,14 +22,25 @@ import type { ErrorKind } from './types.js'
 import {
   defaultClaudeDir,
   defaultCodexDir,
+  defaultCopilotDir,
   defaultCursorDir,
   discoverProjects,
   isEphemeral,
   matchByName,
   matchProjects,
+  mergeCopilotVsSessions,
   projectName,
 } from './discover.js'
-import { aliasOfSource, isSourceFilter, parentSession, storeSourceAlias, wantsClaude, wantsCodex, wantsCursor } from './agents/paths.js'
+import {
+  aliasOfSource,
+  isSourceFilter,
+  parentSession,
+  storeSourceAlias,
+  wantsClaude,
+  wantsCodex,
+  wantsCopilot,
+  wantsCursor,
+} from './agents/paths.js'
 import type { SourceFilter } from './agents/paths.js'
 import {
   appendCursorUsage,
@@ -194,6 +205,7 @@ const GLOBAL_FLAGS = new Set([
   'claude-dir',
   'cursor-dir',
   'codex-dir',
+  'copilot-dir',
   'source',
   'version',
   'help',
@@ -310,7 +322,7 @@ Search
   --ask                        Read the words as a question and let your own LLM write the query
   --prompt                     With --ask: print what would be sent and run nothing
   --again                      With --ask: ask again rather than using the answer already held
-  --source claude|cursor|codex Same as a \`source:\` atom in the query. Does not collect
+  --source claude|cursor|codex|copilot Same as a \`source:\` atom in the query. Does not collect
 
   Bare words are free text; \`key:value\` filters, \`-\` negates, adjacency is and, \`OR\` is or,
   brackets regroup, a quoted run is searched for as written:
@@ -325,7 +337,7 @@ Sessions
   probez sessions [project]    One row per session
   probez session <id>          One session: its tasks, and what each one asked
   --agent <main|sub>           Only sessions someone opened, or only ones handed to a subagent
-  --source claude|cursor|codex Filter already-collected sessions by which agent produced them
+  --source claude|cursor|codex|copilot Filter already-collected sessions by which agent produced them
   --limit <n>                  How many rows to list (default ${DEFAULT_LIMIT} for the list,
                                all of them for one session; 0 for all)
 
@@ -333,7 +345,7 @@ Tasks
   probez tasks [project]       One row per task, across every session
   probez task <id>             One task: what it asked, and every round it took
   --session <id>               Only tasks from this session
-  --source claude|cursor|codex Only tasks whose rounds this agent produced
+  --source claude|cursor|codex|copilot Only tasks whose rounds this agent produced
   --limit <n>                  As above
 
 Rounds
@@ -352,7 +364,7 @@ Rounds
                                ${CATEGORIES.slice(4).map((c) => c.id).join(' · ')}
   --target <name>              Only rounds that worked on this: ${TARGETS.join(' · ')}
   --agent <main|sub>           Only main-agent or only subagent rounds
-  --source claude|cursor|codex Only rounds this agent produced
+  --source claude|cursor|codex|copilot Only rounds this agent produced
   --errors                     Only rounds where a tool failed
   --limit <n>                  How many rounds to list (default ${DEFAULT_LIMIT}, 0 for all)
 
@@ -366,7 +378,7 @@ Trails
   --outcome <name>             Only trails that ended this way: ${OUTCOMES.join(' · ')}
   --session <id>               Only this session
   --task <n>                   Only this task number
-  --source claude|cursor|codex Only trails whose rounds this agent produced
+  --source claude|cursor|codex|copilot Only trails whose rounds this agent produced
   --limit <n>                  How many trails to list (default ${DEFAULT_LIMIT}, 0 for all)
 
 Questions
@@ -380,13 +392,13 @@ ${ASKS.map((kind) => `                               ${pad(kind, 10)}${ASK_MEANI
   --min-calls <n>              Only questions that took at least this many calls
   --session <id>               Only this session
   --task <n>                   Only this task number
-  --source claude|cursor|codex Only questions whose rounds this agent produced
+  --source claude|cursor|codex|copilot Only questions whose rounds this agent produced
   --limit <n>                  How many questions to list (default ${DEFAULT_LIMIT}, 0 for all)
 
 Tools
   probez tools [project]       Every tool called, and what Bash actually ran
   --kinds                      Group Bash by kind of work instead of by command
-  --source claude|cursor|codex Only calls this agent produced
+  --source claude|cursor|codex|copilot Only calls this agent produced
   --limit <n>                  How many commands to list under each tool
                                (default ${DEFAULT_SUB_LIMIT}, 0 for all)
 
@@ -399,7 +411,7 @@ Analysis
                                that inputs alone cannot show
   --session <id>               Only this session
   --task <n>                   Only this task number
-  --source claude|cursor|codex Only rounds this agent produced
+  --source claude|cursor|codex|copilot Only rounds this agent produced
   --limit <n>                  How many sub-rows to list under each category
 
   Shares are of what the work cost, at the rates under Settings in \`probez view\` — or of the
@@ -414,7 +426,7 @@ The view
   probez view                  Open the local profiler in your browser
   --port <n>                   Which port to listen on (default ${DEFAULT_PORT})
   --no-open                    Print the URL instead of opening a browser
-  --source claude|cursor|codex Open the project page filtered to that agent
+  --source claude|cursor|codex|copilot Open the project page filtered to that agent
 
   It listens on 127.0.0.1 and nothing leaves the machine. The URL carries a token that is new
   on every run, without which the data neither answers nor syncs.
@@ -453,7 +465,7 @@ Collection
   probez collect --all         Collect every project on this machine
   --full                       Re-read every session instead of only what changed
   --since <span>               Only sessions written to inside this window, as 30d, 12h or 6w
-  --source claude|cursor|codex|all
+  --source claude|cursor|codex|copilot|all
                                Which agent directories to scan (default all;
                                \`both\` still means all). This is collection, not a
                                store filter. On sessions, analyze, find, view and
@@ -462,13 +474,23 @@ Collection
 
   Claude Code sessions live under ~/.claude/projects. Cursor transcripts live under
   ~/.cursor/projects/<slug>/agent-transcripts. Codex CLI rollouts live under
-  ~/.codex/sessions (or \$CODEX_HOME/sessions). A repository used by more than one
-  agent is one project.
+  ~/.codex/sessions (or \$CODEX_HOME/sessions). GitHub Copilot CLI sessions live under
+  ~/.copilot/session-state (or \$COPILOT_HOME/session-state). A repository used by more
+  than one agent is one project.
+
+  Visual Studio's GitHub Copilot Chat is a different surface from the CLI and is discovered
+  differently: it writes each session inside the project itself, under
+  <project>/.vs/<solution>/copilot-chat/<hash>/sessions, with no per-user directory listing every
+  project that has one. So it is never part of \`--all\` or \`probez projects\` — only naming the
+  project by path or running probez inside it picks these up. The file has no per-turn timestamp
+  and no token counts, and Copilot's reasoning is encrypted at rest, so those stay unmeasured.
 
   Cursor transcripts do not record token usage. \`probez hook\` is the stop-hook receiver that
   does: install it once, and the next \`collect\` attaches those counts to Cursor rounds. The
   hook is not retroactive — turns from before it was installed stay without Tokens and Cost.
-  Claude and Codex usage still comes only from their own logs.
+  Claude and Codex usage still comes only from their own logs. Copilot CLI logs a real
+  output-token count per round but only a cumulative, session-wide input-token total, which is
+  too coarse to attribute to one round — so Copilot rounds stay without Tokens and Cost too.
 
   A store collected by an older probez is rebuilt on the next collect, from the session copies
   it already keeps. Nothing leaves the machine and nothing is lost, but it is not instant.
@@ -495,7 +517,9 @@ Options (these work on every command)
                                (default ~/.cursor/projects)
   --codex-dir <dir>            Where to read Codex CLI rollouts from
                                (default ~/.codex/sessions, or \$CODEX_HOME/sessions)
-  --source claude|cursor|codex|all
+  --copilot-dir <dir>          Where to read GitHub Copilot CLI sessions from
+                               (default ~/.copilot/session-state, or \$COPILOT_HOME/session-state)
+  --source claude|cursor|codex|copilot|all
                                On collect and projects: which agent directories to scan.
                                On read commands: filter stored rounds, collecting nothing.
                                \`source:claude\` is the same filter in the query language
@@ -787,6 +811,16 @@ interface Targets {
 }
 
 /**
+ * Only runs `mergeCopilotVsSessions` against a concrete path, never `--all`: there is no directory
+ * that lists every project Visual Studio has opened, so the global sweep in `discoverProjects`
+ * cannot see this source at all. Naming a project by its path is the only way to reach it.
+ */
+async function withCopilotVs(byPath: Project[], resolved: string, source: SourceFilter): Promise<Project[]> {
+  if (!wantsCopilot(source)) return byPath
+  return mergeCopilotVsSessions(byPath, resolved)
+}
+
+/**
  * A target is a path (a project, or a folder containing several) or a bare project name.
  *
  * `--all` leaves scratch directories out, since a benchmark harness can turn one run into dozens
@@ -795,7 +829,7 @@ interface Targets {
 async function resolveTargets(
   projects: Project[],
   target: string | undefined,
-  options: { all: boolean; includeTemp: boolean },
+  options: { all: boolean; includeTemp: boolean; source: SourceFilter },
 ): Promise<Targets> {
   if (options.all) {
     if (options.includeTemp) return { projects, skippedTemp: 0 }
@@ -803,7 +837,8 @@ async function resolveTargets(
     return { projects: kept, skippedTemp: projects.length - kept.length }
   }
   const wanted = target ?? process.cwd()
-  const byPath = matchProjects(projects, await resolveThroughLinks(wanted))
+  const resolved = await resolveThroughLinks(wanted)
+  const byPath = await withCopilotVs(matchProjects(projects, resolved), resolved, options.source)
   if (byPath.length > 0 || target === undefined) return { projects: byPath, skippedTemp: 0 }
   return { projects: matchByName(projects, target), skippedTemp: 0 }
 }
@@ -2301,6 +2336,7 @@ async function runView(
   claudeDir: string,
   cursorDir: string,
   codexDir: string,
+  copilotDir: string,
   target: string | undefined,
   options: { port?: string; open: boolean; json: boolean; source?: SourceFilter },
 ): Promise<void> {
@@ -2336,6 +2372,7 @@ async function runView(
     claudeDir,
     cursorDir,
     codexDir,
+    copilotDir,
     port,
     pinned: options.port !== undefined,
   })
@@ -2385,6 +2422,7 @@ async function main(): Promise<void> {
         'claude-dir': { type: 'string' },
         'cursor-dir': { type: 'string' },
         'codex-dir': { type: 'string' },
+        'copilot-dir': { type: 'string' },
         source: { type: 'string' },
         json: { type: 'boolean', default: false },
         all: { type: 'boolean', default: false },
@@ -2510,8 +2548,9 @@ async function main(): Promise<void> {
   const claudeDir = values['claude-dir'] ? resolve(values['claude-dir']) : defaultClaudeDir()
   const cursorDir = values['cursor-dir'] ? resolve(values['cursor-dir']) : defaultCursorDir()
   const codexDir = values['codex-dir'] ? resolve(values['codex-dir']) : defaultCodexDir()
+  const copilotDir = values['copilot-dir'] ? resolve(values['copilot-dir']) : defaultCopilotDir()
   if (values.source !== undefined && !isSourceFilter(values.source)) {
-    fail(`--source takes claude, cursor, codex or all, got "${values.source}"`)
+    fail(`--source takes claude, cursor, codex, copilot or all, got "${values.source}"`)
   }
   const source: SourceFilter = values.source === undefined ? 'both' : (values.source as SourceFilter)
 
@@ -2563,7 +2602,7 @@ async function main(): Promise<void> {
   // been collected stays browsable whether or not the sessions it came from still do; the agent's
   // directory is consulted only when you press Sync, and only then can it be missing.
   if (command === 'view') {
-    await runView(dataDir, claudeDir, cursorDir, codexDir, target, {
+    await runView(dataDir, claudeDir, cursorDir, codexDir, copilotDir, target, {
       port: values.port,
       open: values['no-open'] !== true,
       json: values.json,
@@ -2573,7 +2612,7 @@ async function main(): Promise<void> {
   }
 
   const discoverySource: SourceFilter = STORE_SOURCE_COMMANDS.has(command) ? 'all' : source
-  const projects = await discoverProjects({ claudeDir, cursorDir, codexDir, source: discoverySource })
+  const projects = await discoverProjects({ claudeDir, cursorDir, codexDir, copilotDir, source: discoverySource })
 
   // An empty agent directory is only a dead end if the store is empty too. Someone who was sent an
   // export and has never run an agent has nothing to discover and a project to read all the same.
@@ -2582,6 +2621,7 @@ async function main(): Promise<void> {
     if (wantsClaude(discoverySource)) parts.push(shorten(claudeDir))
     if (wantsCursor(discoverySource)) parts.push(shorten(cursorDir))
     if (wantsCodex(discoverySource)) parts.push(shorten(codexDir))
+    if (wantsCopilot(discoverySource)) parts.push(shorten(copilotDir))
     const where =
       parts.length === 0
         ? shorten(claudeDir)
@@ -2668,7 +2708,7 @@ async function main(): Promise<void> {
     return
   }
 
-  const targeting = { all: values.all, includeTemp: values['include-temp'] }
+  const targeting = { all: values.all, includeTemp: values['include-temp'], source }
 
   // Commands that read a collected project. Two of them also write, and only into their own cache:
   // `analyze` its labels, `explain` the reading a person asked for.

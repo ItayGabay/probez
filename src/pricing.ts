@@ -276,6 +276,19 @@ export function priceOf(pricing: Pricing, model: string | null, charged: Charged
   if (id === null) return null
   const rate = pricing.models[id]
   if (rate === undefined || rate === null) return null
+  // A round can carry a real, priced model with no usage recorded at all: Copilot CLI's rounds
+  // always do, since its log gives no per-round input-token count (see extract-copilot.ts). Every
+  // count null there means nothing was ever measured, not a round that cost nothing, and the two
+  // must not come out the same number.
+  if (
+    charged.uncached === null &&
+    charged.write_5m === null &&
+    charged.write_1h === null &&
+    charged.cache_read === null &&
+    charged.out === null
+  ) {
+    return null
+  }
   return (
     ((charged.uncached || 0) * rate.in +
       (charged.write_5m || 0) * rate.cache_write_5m +

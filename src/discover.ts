@@ -1,20 +1,22 @@
-import { open, readdir, stat } from 'node:fs/promises'
+import { open, readFile, readdir, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { basename, join, relative, resolve, sep } from 'node:path'
 
 import {
   defaultClaudeDir,
   defaultCodexDir,
+  defaultCopilotDir,
   defaultCursorDir,
   pathFromCursorSlug,
   wantsClaude,
   wantsCodex,
+  wantsCopilot,
   wantsCursor,
 } from './agents/paths.js'
 import type { SourceFilter } from './agents/paths.js'
 import type { AgentSource, Project, SessionFile } from './types.js'
 
-export { defaultClaudeDir, defaultCodexDir, defaultCursorDir }
+export { defaultClaudeDir, defaultCodexDir, defaultCopilotDir, defaultCursorDir }
 export type { SourceFilter }
 
 /** How much of a session file to scan for the record carrying `cwd`. */
@@ -24,6 +26,7 @@ export interface DiscoverOptions {
   claudeDir: string
   cursorDir: string
   codexDir: string
+  copilotDir: string
   source?: SourceFilter
 }
 
@@ -270,6 +273,152 @@ export async function discoverCodexProjects(codexDir: string): Promise<Project[]
   return projects
 }
 
+/**
+ * The `cwd:` line of a Copilot CLI session's `workspace.yaml`.
+ *
+ * The file is a small, flat `key: value` list with no nesting or quoting in practice, so a
+ * line-regex read is enough and keeps probez's zero-dependency rule intact rather than pulling in
+ * a YAML parser for one field.
+ */
+async function readCopilotCwd(dir: string): Promise<string | null> {
+  let text: string
+  try {
+    text = await readFile(join(dir, 'workspace.yaml'), 'utf8')
+  } catch {
+    return null
+  }
+  const match = /^cwd:\s*(.+?)\s*$/m.exec(text)
+  if (match === null) return null
+  let cwd = match[1]!.trim()
+  // A path with a character YAML treats specially can come out quoted rather than as a bare
+  // scalar. Only the outer quotes are stripped — this is not a YAML parser, so an escape sequence
+  // inside a double-quoted value is left as the writer wrote it rather than being decoded.
+  if (cwd.length >= 2 && ((cwd[0] === '"' && cwd.at(-1) === '"') || (cwd[0] === "'" && cwd.at(-1) === "'"))) {
+    cwd = cwd.slice(1, -1)
+  }
+  return cwd === '' ? null : cwd
+}
+
+/**
+ * GitHub Copilot CLI sessions: a flat `session-state/` directory, one folder per session, each
+ * holding `events.jsonl` and a `workspace.yaml` naming the cwd it ran in.
+ *
+ * There is no per-project folder to walk, the same shape Codex's dated tree has, so sessions are
+ * grouped by that cwd exactly as `discoverCodexProjects` groups rollouts. A session whose
+ * `workspace.yaml` is missing or unreadable cannot be placed and is skipped, rather than guessed at.
+ */
+export async function discoverCopilotProjects(copilotDir: string): Promise<Project[]> {
+  let entries
+  try {
+    entries = await readdir(copilotDir, { withFileTypes: true })
+  } catch {
+    return []
+  }
+
+  const byPath = new Map<string, SessionFile[]>()
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue
+    const dir = join(copilotDir, entry.name)
+    const file = join(dir, 'events.jsonl')
+    const info = await stat(file).catch(() => null)
+    if (info === null || !info.isFile()) continue
+    const cwd = await readCopilotCwd(dir)
+    if (cwd === null) continue
+    const key = resolve(cwd)
+    const session: SessionFile = { id: entry.name, file, size: info.size, mtimeMs: info.mtimeMs, source: 'copilot' }
+    const bucket = byPath.get(key)
+    if (bucket === undefined) byPath.set(key, [session])
+    else bucket.push(session)
+  }
+
+  const projects: Project[] = []
+  for (const [path, files] of byPath) {
+    files.sort((a, b) => a.mtimeMs - b.mtimeMs)
+    projects.push({
+      key: basename(path),
+      path,
+      dir: copilotDir,
+      sessions: files,
+      lastActivity: files[files.length - 1]!.mtimeMs,
+      sources: ['copilot'],
+    })
+  }
+  return projects
+}
+
+/**
+ * Visual Studio's GitHub Copilot Chat sessions for one project: a MessagePack file per session
+ * under `<project>/.vs/<solution>/copilot-chat/<hash>/sessions/`.
+ *
+ * Every other source has one directory under the user's home that lists every project it has ever
+ * seen, so `discoverProjects` can walk it and find them all. This one does not — Visual Studio
+ * writes the session inside the project it belongs to, and there is nowhere to list projects from
+ * without walking the whole disk. So this is not called from `discoverProjects`; it is checked only
+ * against a path the CLI has already resolved a target to. See `resolveTargets` in `cli.ts`.
+ */
+export async function discoverCopilotVsSessions(root: string): Promise<SessionFile[]> {
+  let solutions
+  try {
+    solutions = await readdir(join(root, '.vs'), { withFileTypes: true })
+  } catch {
+    return []
+  }
+
+  const sessions: SessionFile[] = []
+  for (const solution of solutions) {
+    if (!solution.isDirectory()) continue
+    const chatDir = join(root, '.vs', solution.name, 'copilot-chat')
+    const hashes = await readdir(chatDir, { withFileTypes: true }).catch(() => [])
+    for (const hash of hashes) {
+      if (!hash.isDirectory()) continue
+      const sessionsDir = join(chatDir, hash.name, 'sessions')
+      const files = await readdir(sessionsDir, { withFileTypes: true }).catch(() => [])
+      for (const file of files) {
+        if (!file.isFile()) continue
+        const path = join(sessionsDir, file.name)
+        const info = await stat(path).catch(() => null)
+        if (info === null) continue
+        sessions.push({ id: `vs-${file.name}`, file: path, size: info.size, mtimeMs: info.mtimeMs, source: 'copilot', vs: true })
+      }
+    }
+  }
+  sessions.sort((a, b) => a.mtimeMs - b.mtimeMs)
+  return sessions
+}
+
+/**
+ * Fold a target path's Visual Studio Copilot Chat sessions into whichever project already sits
+ * there, or stand up a new one if none does.
+ *
+ * Called wherever a target has been narrowed to a concrete path — the CLI resolving what you named,
+ * or the view server syncing a project it already has a stored path for — never as part of the
+ * global sweep, for the reason `discoverCopilotVsSessions` gives.
+ */
+export async function mergeCopilotVsSessions(projects: Project[], targetPath: string): Promise<Project[]> {
+  const sessions = await discoverCopilotVsSessions(targetPath)
+  if (sessions.length === 0) return projects
+  const newest = sessions[sessions.length - 1]!.mtimeMs
+
+  const existing = projects.find((p) => p.path === targetPath)
+  if (existing !== undefined) {
+    existing.sessions = [...existing.sessions, ...sessions].sort((a, b) => a.mtimeMs - b.mtimeMs)
+    existing.lastActivity = Math.max(existing.lastActivity, newest)
+    if (!(existing.sources ?? []).includes('copilot')) existing.sources = [...(existing.sources ?? []), 'copilot']
+    return projects
+  }
+  return [
+    ...projects,
+    {
+      key: basename(targetPath),
+      path: targetPath,
+      dir: targetPath,
+      sessions,
+      lastActivity: newest,
+      sources: ['copilot'],
+    },
+  ]
+}
+
 export async function discoverCursorProjects(cursorDir: string): Promise<Project[]> {
   let entries
   try {
@@ -363,6 +512,7 @@ export async function discoverProjects(options: DiscoverOptions): Promise<Projec
   if (wantsClaude(source)) found.push(...(await discoverClaudeProjects(options.claudeDir)))
   if (wantsCursor(source)) found.push(...(await discoverCursorProjects(options.cursorDir)))
   if (wantsCodex(source)) found.push(...(await discoverCodexProjects(options.codexDir)))
+  if (wantsCopilot(source)) found.push(...(await discoverCopilotProjects(options.copilotDir)))
   return mergeProjects(found)
 }
 

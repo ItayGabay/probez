@@ -10,6 +10,7 @@ import { MixBar, mostlyUnpriced, UnpricedMark } from '../components/WorkBars'
 import { ago, count, percent } from '../format'
 import { go, href, linkProps } from '../router'
 import type { SourceChoice } from '../router'
+import { SOURCE_LABEL } from '../source'
 import { useData } from '../useData'
 import type { StoredProject } from '../api'
 import type { CSSProperties, ReactElement } from 'react'
@@ -300,7 +301,7 @@ export function Projects({ source = null }: { source?: SourceChoice | null }): R
                   ) : (
                     <>
                       No project in this store has{' '}
-                      {source === 'claude' ? 'Claude' : source === 'cursor' ? 'Cursor' : 'Codex'}{' '}
+                      {SOURCE_LABEL[source]}{' '}
                       sessions.
                     </>
                   )}

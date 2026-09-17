@@ -139,7 +139,7 @@ export interface StoredProject {
   imported_at: string | null
   /** When this arrived darkened, or null when what it holds is as it was recorded. */
   darkened_at: string | null
-  sources: Array<'claude-code' | 'cursor' | 'codex'>
+  sources: Array<'claude-code' | 'cursor' | 'codex' | 'copilot'>
 }
 
 export interface TraceRound {
@@ -295,7 +295,7 @@ export interface ViewSession extends Totals {
   /** "sub" when a subagent ran this session, matching the field a round carries. */
   agent: 'main' | 'sub'
   /** Which product produced this session. Mirrors `SessionRow.source`. */
-  source: 'claude-code' | 'cursor' | 'codex' | 'unknown'
+  source: 'claude-code' | 'cursor' | 'codex' | 'copilot' | 'unknown'
   rounds: number
   /** Rounds whose model has no rate, and which therefore added nothing to `cost`. */
   unpriced: number
@@ -775,7 +775,7 @@ export interface SearchHit {
   ts?: string | null
   model?: string | null
   agent?: 'main' | 'sub'
-  source?: 'claude-code' | 'cursor' | 'codex' | 'unknown'
+  source?: 'claude-code' | 'cursor' | 'codex' | 'copilot' | 'unknown'
   ms?: number | null
   cost?: number | null
   in_tokens?: number | null

@@ -21,6 +21,8 @@ import { isAgentSource, isRoundSource, safeSessionFilename, sessionIdFromFilenam
 import { applyCursorUsage, readCursorUsage } from './cursor-usage.js'
 import { readToolResults } from './result.js'
 import { extractCodexSession, isCodexRecord } from './extract-codex.js'
+import { extractCopilotSession, isCopilotRecord } from './extract-copilot.js'
+import { extractCopilotVsSession } from './extract-copilot-vs.js'
 import { extractCursorSession } from './extract-cursor.js'
 import { extractSession } from './extract.js'
 import { readHeadHistory } from './git.js'
@@ -661,9 +663,10 @@ const SNIFF_BYTES = 64 * 1024
  * state entry is gone, and the id cannot settle it: Claude and Cursor name a subagent's transcript
  * for the path it sits at, so a `/` in the id says a subagent wrote it and nothing about which
  * agent did. The records themselves are unambiguous — Codex lines are typed envelopes with a
- * `payload`, Claude rows are typed and carry a `sessionId`, Cursor rows carry a `role` and
- * nothing else — so read one. Codex is checked first because every rollout line has a `type`,
- * which is also how Claude rows announce themselves.
+ * `payload`, Copilot lines are typed envelopes with a `data` and a dotted `type`, Claude rows are
+ * typed and carry a `sessionId`, Cursor rows carry a `role` and nothing else — so read one. Codex
+ * and Copilot are checked first because every one of their lines has a `type`, which is also how
+ * Claude rows announce themselves.
  *
  * Format detection is the legitimate way to recover a source. Guessing from missing tokens, a
  * model name or a tool is not. When the file is not a transcript of any known agent, the answer
@@ -692,6 +695,7 @@ export async function sniffSource(file: string): Promise<RoundSource> {
     if (!record || typeof record !== 'object') continue
     const row = record as Record<string, unknown>
     if (isCodexRecord(row)) return 'codex'
+    if (isCopilotRecord(row)) return 'copilot'
     if (typeof row.type === 'string' || typeof row.sessionId === 'string') return 'claude-code'
     if (typeof row.role === 'string') return 'cursor'
   }
@@ -827,7 +831,11 @@ export async function collectProject(
         ? await extractCursorSession(session.file, session.id, head)
         : session.source === 'codex'
           ? await extractCodexSession(session.file, session.id, head)
-          : await extractSession(session.file, session.id, head)
+          : session.source === 'copilot'
+            ? session.vs === true
+              ? await extractCopilotVsSession(session.file, session.id, head)
+              : await extractCopilotSession(session.file, session.id, head)
+            : await extractSession(session.file, session.id, head)
     // Cursor transcripts have no usage. Hook events under the data dir are merged here so a
     // rebuild still picks them up. Claude and Codex rounds already carry their own counts and
     // applyCursorUsage redistributes onto tool-using rounds (or parks prose-only as outside).

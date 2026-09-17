@@ -177,9 +177,19 @@ output in `dist/test/`, which is why `npm test` builds first.
   `<user_query>`, synthetic tool ids, null usage, and subagent paths.
 - `test/extract-codex.test.ts` covers Codex rollouts: one round per model burst, tasks from
   `user_message`, usage from `token_count`, `shell` argv, `apply_patch`, and subagent metadata.
+- `test/extract-copilot.test.ts` covers Copilot CLI sessions: one round per `assistant.message`,
+  tasks from `user.message`, a tool's result becoming the next round's leading input event, a
+  failed call's body falling through the shared error rules to `other`, and usage staying null.
+- `test/extract-copilot-vs.test.ts` covers Visual Studio's GitHub Copilot Chat sessions: one round
+  per response turn grouped by `CorrelationId`, a regenerated answer yielding one round per response
+  under the same task, a dangling request with no response yielding no round, and only the session's
+  first round carrying a real timestamp.
+- `test/msgpack.test.ts` covers the MessagePack decoder VS Copilot Chat sessions are read through:
+  every primitive type, nested arrays and maps, the timestamp extension, and an unrecognised byte
+  ending the walk without losing what decoded before it.
 - `test/discover.test.ts` covers Cursor nested transcripts, Claude's subagent transcripts under the
-  session that spawned them, Codex's dated tree grouped by cwd, and merging checkouts of the same
-  path into one project.
+  session that spawned them, Codex's dated tree grouped by cwd, Copilot's `session-state` tree read
+  from each session's own `workspace.yaml`, and merging checkouts of the same path into one project.
 - `test/inspect.test.ts` covers the read side — session, task and tool aggregation, the work
   taxonomy's fractional split, the trace and its phase smoothing, round filters, and selector
   parsing — against rounds built in the test file itself, so it needs no fixture.
