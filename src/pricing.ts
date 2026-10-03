@@ -159,6 +159,8 @@ export function defaultPricing(): Pricing {
       'gpt-5.5': rates(5, 30, NO_WRITE_PREMIUM),
       'gpt-5.4': rates(2.5, 15, NO_WRITE_PREMIUM),
       'gpt-5.4-mini': rates(0.75, 4.5, NO_WRITE_PREMIUM),
+      // Visual Studio's Copilot Chat default. GitHub's own model list quotes the same $0.25/$2.
+      'gpt-5-mini': rates(0.25, 2, NO_WRITE_PREMIUM),
       'gpt-5.3-codex': rates(1.75, 14, NO_WRITE_PREMIUM),
       'gpt-5.2': rates(1.75, 14, NO_WRITE_PREMIUM),
       'gpt-5.1': rates(1.25, 10, NO_WRITE_PREMIUM),

@@ -47,16 +47,18 @@ used in more than one agent is one project. Cursor transcripts omit token usage;
 `probez hook --install` once so Cursor's stop hook records them, then `collect` attaches the
 counts. The hook is not retroactive — only turns after it is installed get Tokens and Cost;
 `collect` cannot invent usage for older Cursor sessions. Without the hook those rounds stay
-outside Tokens and Cost. Copilot CLI's own log gives a real output-token count per round but only
-a cumulative, session-wide input-token total — too coarse to attribute to one round without
-misreporting cost — so Copilot rounds stay outside Tokens and Cost too, with no hook to close the
-gap. Visual Studio's GitHub Copilot Chat is read too, from `<project>/.vs/<solution>/copilot-chat`
-inside the project itself rather than from a per-user directory — there is nowhere to list every
-project it has opened, so naming the project by path (or running `probez collect` inside it) is
-what picks these sessions up; `--all` does not. That file has no per-turn timestamp, no token
-counts, and Copilot's reasoning is encrypted at rest, so those stay unmeasured the same way. Each
-round records which product produced it; filter with `--source` or `source:` rather than treating
-agents as separate projects.
+outside Tokens and Cost. Copilot CLI's own log gives a real output-token count per round and a
+session-wide input total at each shutdown, which is split across that stretch's rounds by output
+share — an estimate for cost, never read as context; the context size Copilot records at each
+shutdown is. Visual Studio's GitHub Copilot Chat is read too, from
+`<project>/.vs/<solution>/copilot-chat` inside the project itself rather than from a per-user
+directory — there is nowhere to list every project it has opened, so naming the project by path (or
+running `probez collect` inside it) is what picks these sessions up; `--all` does not. That file has
+no per-turn timestamp and no token counts, and Copilot's reasoning is encrypted at rest. Tokens,
+Cost and context come instead from Visual Studio's own log, `%TEMP%\VSGitHubCopilotLogs`, which
+records every model call — see *Visual Studio Copilot Chat usage* below for how long that lasts.
+Each round records which product produced it; filter with `--source` or `source:` rather than
+treating agents as separate projects.
 
 **3. Look at what came back**, in the browser or in the terminal:
 
@@ -277,10 +279,24 @@ Cursor's `stop` hook writes each parent-agent turn's tokens into `~/.probez/curs
 The next `probez collect` attaches them to matching Cursor tasks — split across tool-using rounds
 by the same weights as the work categories, not onto a trailing prose-only reply. Claude and Codex
 usage still come only from their own logs. Without the hook, Cursor Tokens and Cost stay blank.
-Copilot CLI has no hook to install: its log gives no per-round input-token count at all, so
-Copilot Tokens and Cost stay blank regardless.
+Copilot CLI has no hook to install: its own log is what Tokens and Cost come from.
 Past Cursor turns from before the hook was installed stay blank too — collect does not backfill
 them.
+
+**Visual Studio Copilot Chat usage.** Nothing to install. Visual Studio logs every model call it
+makes — the whole prompt it sent, how much of that was cached, what came back — under
+`%TEMP%\VSGitHubCopilotLogs`, and each `probez collect` on a project with Visual Studio chats copies
+what those logs hold into `~/.probez/copilot-vs-usage.jsonl`. A round gets the calls it made summed
+for Tokens and Cost, and the largest single prompt among them for context, measured against the
+prompt cap Copilot itself puts on the model — 128,000 for `gpt-5-mini`, not OpenAI's 272,000.
+
+**This only works for chats whose log still exists.** Visual Studio keeps these logs only briefly —
+a new one each launch, older ones cleared — so a chat from before probez first read its log has no
+usage and never will: nothing else on disk records it. Run `probez collect` while the log is still
+there and the numbers are kept from then on, through log cleanup and store rebuilds alike. Cost is
+at the API list rate for the model, the same as every other source; Copilot itself bills by premium
+request, not by token. With two Copilot Chat windows answering at once, the log does not say which
+call belonged to which, and a call can land on the wrong one of the two.
 
 ```console
 $ probez

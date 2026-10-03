@@ -4,7 +4,7 @@ import { CATEGORIES, categoryInfo, classifyCall } from './classify.js'
 import type { Category, Label } from './classify.js'
 import { benign, failed } from './errors.js'
 import { shortSession } from './format.js'
-import { contextShare, contextTokens, contextWindow } from './models.js'
+import { contextShare, contextTokens, contextWindowOf } from './models.js'
 import { costOf } from './pricing.js'
 import type { Pricing } from './pricing.js'
 import type { Question } from './question.js'
@@ -70,8 +70,8 @@ export interface SessionRow extends Totals {
    */
   error_rounds: number[]
   /**
-   * Largest context (`contextTokens`, which is `in_tokens` on every source but Copilot CLI) any
-   * round in this session recorded. Null when no round had a reading — not the same as a peak of
+   * Largest context (`contextTokens`, which is `in_tokens` on every source but Copilot) any round
+   * in this session recorded. Null when no round had a reading — not the same as a peak of
    * zero. Distinct from `in_tokens`, which is the sum across rounds.
    */
   peak_in_tokens: number | null
@@ -284,7 +284,7 @@ export function sessionRows(rounds: Round[], pricing: Pricing): SessionRow[] {
     if (filled !== null) {
       if (row.peak_in_tokens === null || filled > row.peak_in_tokens) {
         row.peak_in_tokens = filled
-        row.peak_context_window = contextWindow(round.model)
+        row.peak_context_window = contextWindowOf(round)
       }
     }
     for (const tool of round.tools ?? []) {
@@ -374,9 +374,9 @@ export function taskRows(rounds: Round[], pricing: Pricing): TaskRow[] {
  * One calendar day of peak context across tasks — occupancy % when a window is known, and absolute
  * peak tokens whenever usage was recorded. Both share the same day bucketing (`first_ts`).
  *
- * Occupancy is only defined for tasks whose peak round's model has a published window
- * (`CONTEXT_WINDOWS` via `contextWindow`). Unknown windows still count in `tasks` but never invent
- * a percent — they sit in `tasks - with_window`. Peak tokens need no window.
+ * Occupancy is only defined for tasks whose peak round has a known window (`contextWindowOf`: the
+ * harness's own cap where it recorded one, `CONTEXT_WINDOWS` otherwise). Unknown windows still
+ * count in `tasks` but never invent a percent — they sit in `tasks - with_window`. Peak tokens need no window.
  */
 export interface PeakContextDay {
   /** `YYYY-MM-DD` from the task's `first_ts` (UTC date of the ISO timestamp). */
@@ -412,8 +412,9 @@ interface TaskPeak {
 /**
  * Daily peak context series: average (and max) occupancy %, and average (and max) peak tokens.
  *
- * Per task: `max(contextTokens)` — `in_tokens` on every source but Copilot CLI — then that count
- * over `contextWindow` of the round that set the peak when a window is published. No window → no percent for that task; the peak tokens still count.
+ * Per task: `max(contextTokens)` — `in_tokens` unless a source recorded the window apart from its
+ * billed input — then that count over `contextWindowOf` the round that set the peak, when a window
+ * is known. No window → no percent for that task; the peak tokens still count.
  * Days are the UTC date of `first_ts`; tasks with no timestamp are dropped from the series rather
  * than inventing a bucket.
  */
@@ -437,14 +438,14 @@ export function peakContextOccupancyDaily(rounds: Round[]): PeakContextDay[] {
     if (filled === null) continue
     if (entry.peak === null || filled > entry.peak) {
       entry.peak = filled
-      entry.window = contextWindow(round.model)
+      entry.window = contextWindowOf(round)
     } else if (
       entry.peak === filled &&
       entry.window === null &&
-      contextWindow(round.model) !== null
+      contextWindowOf(round) !== null
     ) {
       // Same peak height; prefer a round whose model publishes a window so the task can contribute.
-      entry.window = contextWindow(round.model)
+      entry.window = contextWindowOf(round)
     }
   }
 
@@ -1146,7 +1147,7 @@ export function traceOf(rounds: Round[], options: { window?: number } = {}): Tra
       out_tokens: round.out_tokens,
       context_tokens: contextTokens(round),
       context_share: contextShare(round),
-      context_window: contextWindow(round.model),
+      context_window: contextWindowOf(round),
       thinking_chars: round.thinking_chars || 0,
       tools: tools.length,
       errors: tools.filter(failed).length,

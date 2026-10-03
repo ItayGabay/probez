@@ -15,14 +15,15 @@ import type { ReactElement } from 'react'
  * Context usage across a session: how full the model's input window was, round by round.
  *
  * `context_tokens` is that round's actual usage, never a running total, so a drop after compaction
- * is real. It is `in_tokens` on every source but Copilot CLI, which records the window only once per
- * segment, so most of its rounds have no reading. Coverage is often partial — a late Cursor hook, a
- * model that never reports usage — so this never fills, connects across, or estimates a round that
- * recorded none. The chart is a sparkline
- * built only from the rounds that have data (no empty slot for the ones that don't), which is what
- * keeps it readable when coverage is thin; the peak / last / median summary above it carries the
- * "how full does this get" answer even when the chart itself has too few points to show a trend.
- * Collapsed by default so the session page stays quiet; nothing mounts until opened.
+ * is real. It is `in_tokens` on every source but Copilot: Copilot CLI records the window only once
+ * per segment, so most of its rounds have no reading, and a Visual Studio round is the largest of
+ * the model calls it made. Coverage is often partial — a late Cursor hook, a model that never
+ * reports usage, a Visual Studio log deleted before probez read it — so this never fills, connects
+ * across, or estimates a round that recorded none. The chart is a sparkline built only from the
+ * rounds that have data (no empty slot for the ones that don't), which is what keeps it readable
+ * when coverage is thin; the peak / last / median summary above it carries the "how full does this
+ * get" answer even when the chart itself has too few points to show a trend. Collapsed by default
+ * so the session page stays quiet; nothing mounts until opened.
  */
 
 type Axis = 'round' | 'time'

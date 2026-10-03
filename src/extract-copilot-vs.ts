@@ -1,5 +1,7 @@
 import { readFile } from 'node:fs/promises'
+import { basename } from 'node:path'
 
+import type { CopilotVsCall } from './copilot-vs-log.js'
 import { applyTiming, inputChars, truncateInput } from './extract.js'
 import type { HeadHistory } from './git.js'
 import { decodeAll, type MsgpackValue } from './msgpack.js'
@@ -111,14 +113,58 @@ function toolsOf(content: MsgpackValue | undefined): ToolCall[] {
 }
 
 /**
+ * Put a request's logged model calls onto the round that answered it.
+ *
+ * A round here is one response, and an agent response is several model calls — one per tool step —
+ * each sending the whole conversation again. So the billed counts are the calls summed, the way
+ * every other source's round is billed, while the context the round reached is the largest single
+ * prompt among them: the sum would be a size no window ever held. The window is Copilot's own cap
+ * on that model, from the same log, when the log listed it.
+ *
+ * `InputTokenCount` already counts its cached tokens, as OpenAI's `prompt_tokens` does, so uncached
+ * is what is left after them. Nothing is ever charged as a cache write: OpenAI bills none.
+ */
+function applyCalls(round: Round, calls: CopilotVsCall[]): void {
+  let input = 0
+  let cached = 0
+  let output = 0
+  let peak = 0
+  let window: number | null = null
+  for (const call of calls) {
+    input += call.input_tokens
+    cached += Math.min(call.cached_tokens ?? 0, call.input_tokens)
+    output += call.output_tokens ?? 0
+    peak = Math.max(peak, call.input_tokens)
+    if (call.max_prompt_tokens !== null) window = Math.max(window ?? 0, call.max_prompt_tokens)
+  }
+  round.in_tokens = input
+  round.in_uncached = input - cached
+  round.in_cache_read = cached
+  round.in_cache_write = 0
+  round.in_cache_write_5m = 0
+  round.in_cache_write_1h = 0
+  round.out_tokens = output
+  round.context_tokens = peak
+  round.context_window = window
+  // The session file names the model the person picked; the log names the one that answered.
+  const model = calls.find((call) => call.model !== null)?.model
+  if (round.model === null && model !== undefined && model !== null) round.model = model
+}
+
+/**
  * Assemble rounds from a Visual Studio GitHub Copilot Chat session (`msgpack.ts` decodes the file).
  *
  * The format gives no per-turn timestamp at all — only one `TimeCreated` for the whole session —
  * so only the session's first round gets a real `ts`, taken as the moment the thread was created,
  * which is also the moment its first message was sent. Every later round's `ts`, and every round's
  * `ms`/`gen_ms`/`wait_ms`, stays null: an honest gap rather than a timestamp invented from the file
- * order. Usage is never set, for the same reason it stays null for Copilot CLI and Cursor — nothing
- * in the file measures it.
+ * order.
+ *
+ * Nothing in the file measures usage. `calls` is what Visual Studio's own log recorded for this
+ * session (`copilot-vs-log.ts`), joined by `CorrelationId`: a round whose request has calls gets
+ * real tokens, cost and context, and one whose log was gone before probez read it keeps them null.
+ * A request Copilot answered more than once (a regenerated answer) has calls the log cannot divide
+ * between its responses, so those rounds stay null too rather than each claiming the whole.
  *
  * A turn pair is `[typeTag, { CorrelationId, ... }]`; the request and its response(s) share one
  * `CorrelationId`, which is what pairs them without leaning on the tag. A `CorrelationId` with more
@@ -129,7 +175,18 @@ export async function extractCopilotVsSession(
   file: string,
   sessionId: string,
   head: HeadHistory | null = null,
+  calls: CopilotVsCall[] = [],
 ): Promise<Round[]> {
+  // The log names a session by its file's name, which probez's own id carries behind a `vs-`.
+  const conversation = basename(file).toLowerCase()
+  const callsByRequest = new Map<string, CopilotVsCall[]>()
+  for (const call of calls) {
+    if (call.conversation_id.toLowerCase() !== conversation) continue
+    const bucket = callsByRequest.get(call.correlation_id)
+    if (bucket === undefined) callsByRequest.set(call.correlation_id, [call])
+    else bucket.push(call)
+  }
+
   let buf: Buffer
   try {
     buf = await readFile(file)
@@ -204,6 +261,8 @@ export async function extractCopilotVsSession(
         in_cache_write_1h: null,
         in_cache_read: null,
         out_tokens: null,
+        context_tokens: null,
+        context_window: null,
         compaction: null,
         mcp_server: null,
         mcp_tool: null,
@@ -214,6 +273,8 @@ export async function extractCopilotVsSession(
         tools: toolsOf(response.Content),
         events,
       }
+      const logged = callsByRequest.get(correlationId)
+      if (logged !== undefined && turns.length === 2) applyCalls(round, logged)
       applyTiming(round)
       rounds.push(round)
     }

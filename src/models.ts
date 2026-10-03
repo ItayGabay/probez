@@ -52,6 +52,7 @@ export const CONTEXT_WINDOWS: Record<string, number> = {
   'gpt-5.5': 272_000,
   'gpt-5.4': 272_000,
   'gpt-5.4-mini': 272_000,
+  'gpt-5-mini': 272_000,
   'gpt-5.3-codex': 272_000,
   'gpt-5.2': 272_000,
   'gpt-5.1': 272_000,
@@ -107,6 +108,16 @@ export function contextWindow(model: string | null): number | null {
 }
 
 /**
+ * The window a round's input was measured against: the one its harness recorded enforcing, when
+ * it recorded one, and otherwise its model's published window.
+ */
+export function contextWindowOf(round: Round): number | null {
+  const recorded = round.context_window
+  if (typeof recorded === 'number' && recorded > 0) return recorded
+  return contextWindow(round.model)
+}
+
+/**
  * How many tokens of its model's input window a round filled, or null when that is not known.
  *
  * `in_tokens` for every source but one: a source that records the window apart from its billed
@@ -129,7 +140,7 @@ export function contextTokens(round: Round): number | null {
  * which is not the same as a round that filled none of it.
  */
 export function contextShare(round: Round): number | null {
-  const window = contextWindow(round.model)
+  const window = contextWindowOf(round)
   const filled = contextTokens(round)
   if (window === null || filled === null) return null
   return filled / window
