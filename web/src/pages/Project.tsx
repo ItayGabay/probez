@@ -7,6 +7,7 @@ import { Chrome, Facts, Info, Loading, Problem } from '../components/Chrome'
 import { SourceMarks, SourceTag } from '../components/SourceMarks'
 import { InTokens, Reused, TokenCells, TokenHeaders } from '../components/Tokens'
 import { MixBar, WorkBars, ErrorsSearchLink } from '../components/WorkBars'
+import { ProjectTrends } from '../components/ProjectTrends'
 import { QUESTIONS_ARIA, QuestionsTable, questionsExplained } from '../components/QuestionPanel'
 import { TRAILS_ARIA, trailsExplained } from '../components/TrailPanel'
 import { ago, count, duration, money, percent, shortId, shortModel, tokens, when } from '../format'
@@ -32,7 +33,7 @@ export function Project({
   // Bumped after a sync, which is what makes every table on this page re-read the store.
   const [read, setRead] = useState(0)
   const { data, error, loading } = useData(() => api.project(slug, source), [slug, read, source])
-  const [tab, setTab] = useState<'work' | 'tools'>('work')
+  const [tab, setTab] = useState<'work' | 'tools' | 'trends'>('work')
   const [list, setList] = useState<'sessions' | 'trails' | 'questions'>('sessions')
 
   return (
@@ -115,7 +116,11 @@ export function Project({
             <section>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
                 <h2 style={{ margin: 0 }}>
-                  {tab === 'work' ? 'Where agent work goes' : 'What it called'}
+                  {tab === 'work'
+                    ? 'Where agent work goes'
+                    : tab === 'tools'
+                      ? 'What it called'
+                      : 'Trends'}
                 </h2>
                 <span className="spacer" style={{ flex: 1 }} />
                 <div className="toggle">
@@ -125,12 +130,20 @@ export function Project({
                   <button aria-pressed={tab === 'tools'} onClick={() => setTab('tools')}>
                     tools
                   </button>
+                  <button aria-pressed={tab === 'trends'} onClick={() => setTab('trends')}>
+                    trends
+                  </button>
                 </div>
               </div>
               {tab === 'work' ? (
                 <WorkBars analysis={data.analysis} slug={slug} source={source} />
-              ) : (
+              ) : tab === 'tools' ? (
                 <Tools slug={slug} read={read} source={source} />
+              ) : (
+                <ProjectTrends
+                  peak={data.trends.peak_context_occupancy}
+                  reusedFresh={data.trends.reused_vs_fresh}
+                />
               )}
             </section>
 
@@ -183,6 +196,12 @@ export function Project({
                     <th className="r">Tools</th>
                     <th>Work</th>
                     <TokenHeaders />
+                    <th
+                      className="r"
+                      title="Largest input context any round in this session recorded (max in_tokens). When the model has a published window, the share of that window is shown too. Not the sum of input tokens."
+                    >
+                      Peak context
+                    </th>
                     <th
                       className="r"
                       title="What this session cost at the rates under Settings, worked out per round from its own model's prices and summed. Rounds whose model has no rate are left out, and the row is marked."
@@ -255,6 +274,27 @@ export function Project({
                         )}
                       </td>
                       <TokenCells of={session} />
+                      <td
+                        className="r num"
+                        title={
+                          session.peak_in_tokens === null
+                            ? 'No round in this session recorded input tokens'
+                            : session.peak_context_window === null
+                              ? 'Largest input context any round recorded. No published window for that model, so no share.'
+                              : `Largest input context any round recorded — ${percent(session.peak_in_tokens / session.peak_context_window, 0)} of the model's ${tokens(session.peak_context_window)} input room`
+                        }
+                      >
+                        {session.peak_in_tokens === null ? (
+                          <span className="muted">—</span>
+                        ) : (
+                          <>
+                            {tokens(session.peak_in_tokens)}
+                            {session.peak_context_window !== null && session.peak_context_window > 0
+                              ? ` (${percent(session.peak_in_tokens / session.peak_context_window, 0)})`
+                              : null}
+                          </>
+                        )}
+                      </td>
                       {/* What is shown is what could be priced. Some rounds unpriced marks the
                           figure `+`, since it is real but short; none priced shows the same dash
                           every unmeasured value does, rather than a total that would read as free. */}

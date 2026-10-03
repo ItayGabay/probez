@@ -32,6 +32,26 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html). It is pub
   listing every project Visual Studio has opened, so this source is never part of a global sweep or
   `--all` — only naming a project by path (or running `probez collect` inside it) surfaces it.
 
+## [0.7.3] - 2026-09-25
+
+### Added
+
+- **Trends on the project page: peak context and reused vs fresh input.** Beside *work* and
+  *tools*, a *trends* tab charts two daily series over a shared 7 / 30 / 90 day range (default
+  **7 days**, ending at the latest task day). **Peak context** is each day's average of task
+  `max(in_tokens)` as Occupancy % (published `CONTEXT_WINDOWS` only; the default metric) or Peak
+  Tokens. **Reused vs Fresh** is a stacked bar of daily sums: Reused = `in_cache_read`, Fresh =
+  `in_uncached + in_cache_write` — not called "Write", so it is not confused with cache-write rates.
+  Null components are skipped, never invented as zero; days without eligible data are gaps. Hover
+  names coverage (`with window` / `with tokens` / `with_split`). Sessions and Work/Tools are
+  unchanged.
+
+- **Rates for `claude-opus-5-5`.** $4 input, $20 output, and a cache read at 0.05× input — half the
+  0.1× most models use, so it is stated rather than inherited. Its context window is the 1M the rest
+  of the Opus 5 generation has. A store here already held 97 rounds of it, 84 of them classified and
+  every one outside Share; `probez analyze` on that project went from `$447.08` to `$452.63` with no
+  unpriced line. Settings still overrides, as it does for every row.
+
 - **Cursor stop-hook token usage.** `probez hook` reads Cursor's official `stop` (or
   `afterAgentResponse`) payload from stdin and appends it under `~/.probez/cursor-usage.jsonl`.
   `probez hook --install` wires `~/.cursor/hooks.json` so Cursor calls that command when an agent
@@ -51,6 +71,32 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html). It is pub
   Tokens column is the same category split over input+output tokens. Share stays of cost. Rounds
   with no usage recorded sit outside Tokens the same way an unpriced model sits outside Share.
   Cursor rounds without a stop-hook event are in that set; with `probez hook` they join Tokens.
+
+- **Context usage on the session page.** Below the round-by-round trace, a collapsible *Context
+  usage* section (closed by default) opens on a peak / last / median summary of `in_tokens` — the
+  size of the model's input window for that round, never a running total — plus the fraction of
+  rounds that recorded it at all (`138 / 665 rounds have context data`) and, when a window limit is
+  known, peak as a percent of it. The chart itself is a sparkline built only from the rounds that
+  have data: no slot, no connecting line, and no estimate for the rounds that don't, which is what
+  keeps thin coverage from rendering as a mostly-empty graph. Hover shows the round or time and the
+  exact token count. A session with no data says so instead of drawing an empty chart.
+
+- **Peak context on the sessions table.** Each session row (view and `probez sessions`) carries the
+  largest `in_tokens` any of its rounds recorded — not the sum — so a wasteful session is visible
+  without opening it. When the model on that peak round has a published window, a share is shown
+  beside the count (`466.1K (47%)`); Cursor and other unknown windows stay absolute-only. No usage
+  recorded stays `—`, never a fabricated zero.
+
+### Fixed
+
+- **A `grep` that matched nothing no longer reads as `failed` in the view.** 0.7.0 gave every
+  flagged call a kind and excluded `nomatch` and `denied` from what counts as a failure, but the
+  round Inspector recounted from the raw `is_error` bit — so a search answering "no" got a red
+  **failed** badge in the panel while `probez round` two commands away printed `nomatch` and counted
+  zero errors. The Inspector's badge and its "N failed" count now ask the kind, and the kind is
+  shown beside the call the way the CLI's round line already prints it. Rounds collected before
+  0.7.0 carry no kind and still count as failures by design; `probez collect --full` re-extracts
+  them.
 
 ## [0.7.2] - 2026-09-09
 
@@ -1654,7 +1700,8 @@ First release.
   above them. Errors, result size and time belong to the call, which has one result and one
   duration, so every command in a multi-command call is charged the whole of it.
 
-[Unreleased]: https://github.com/flowzhq/probez/compare/v0.7.2...HEAD
+[Unreleased]: https://github.com/flowzhq/probez/compare/v0.7.3...HEAD
+[0.7.3]: https://github.com/flowzhq/probez/compare/v0.7.2...v0.7.3
 [0.7.2]: https://github.com/flowzhq/probez/compare/v0.7.1...v0.7.2
 [0.7.1]: https://github.com/flowzhq/probez/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/flowzhq/probez/compare/v0.6.0...v0.7.0
