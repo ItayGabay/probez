@@ -14,9 +14,11 @@ import type { ReactElement } from 'react'
 /**
  * Context usage across a session: how full the model's input window was, round by round.
  *
- * `in_tokens` is that round's actual usage, never a running total, so a drop after compaction is
- * real. Coverage is often partial — a late Cursor hook, a model that never reports usage — so this
- * never fills, connects across, or estimates a round that recorded none. The chart is a sparkline
+ * `context_tokens` is that round's actual usage, never a running total, so a drop after compaction
+ * is real. It is `in_tokens` on every source but Copilot CLI, which records the window only once per
+ * segment, so most of its rounds have no reading. Coverage is often partial — a late Cursor hook, a
+ * model that never reports usage — so this never fills, connects across, or estimates a round that
+ * recorded none. The chart is a sparkline
  * built only from the rounds that have data (no empty slot for the ones that don't), which is what
  * keeps it readable when coverage is thin; the peak / last / median summary above it carries the
  * "how full does this get" answer even when the chart itself has too few points to show a trend.
@@ -30,7 +32,7 @@ const PAD = { top: 10, right: 12, bottom: 24, left: 44 }
 
 export function ContextUsage({ trace }: { trace: TraceData }): ReactElement {
   const [open, setOpen] = useState(false)
-  const measured = trace.rounds.filter((round) => typeof round.in_tokens === 'number')
+  const measured = trace.rounds.filter((round) => typeof round.context_tokens === 'number')
   const hasData = measured.length > 0
 
   return (
@@ -119,7 +121,7 @@ function ContextSparkline({
   }, [])
 
   const points = useMemo(() => placePoints(measured, axis), [measured, axis])
-  const values = useMemo(() => measured.map((round) => round.in_tokens as number), [measured])
+  const values = useMemo(() => measured.map((round) => round.context_tokens as number), [measured])
   const maxTokens = Math.max(...values, windowLimit ?? 0)
   const innerW = Math.max(0, width - PAD.left - PAD.right)
   const innerH = H - PAD.top - PAD.bottom
@@ -275,7 +277,7 @@ function ContextSummary({
   windowLimit: number | null
 }): ReactElement | null {
   if (measured.length === 0) return null
-  const values = measured.map((round) => round.in_tokens as number)
+  const values = measured.map((round) => round.context_tokens as number)
   const peak = Math.max(...values)
   const last = values[values.length - 1]!
   const mid = median(values)

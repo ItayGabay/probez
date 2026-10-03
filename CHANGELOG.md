@@ -19,10 +19,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html). It is pub
   tokens exist only as a per-model total at `session.shutdown`, covering every round since the last
   `session.start`/`session.resume`, so that total is split across the segment's rounds by each
   round's share of its output tokens. A segment that never reaches a shutdown (the CLI killed, or
-  resumed again first) keeps its output counts but no input, so its rounds stay out of Cost. Model
-  ids as Copilot records them (`claude-haiku-4.5`) resolve to the dashed rate-table key
-  (`claude-haiku-4-5`). `--source copilot` / `source:copilot` filters it like any other agent.
-  Subagent delegation is not modelled: every Copilot round is `agent: "main"`.
+  resumed again first) keeps its output counts but no input, so its rounds stay out of Cost. Those
+  split shares are billing, not context, so peak context, the trends tab and *Context usage* never
+  read them: each shutdown's `currentTokens` — what the window held when the segment ended — is the
+  one context reading a segment gives, and it sits on that segment's last round alone. A session
+  page says how few rounds that is (`3 / 13 rounds have context data`) rather than drawing a
+  billing split as a context curve. Model ids as Copilot records them (`claude-haiku-4.5`) resolve
+  to the dashed rate-table key (`claude-haiku-4-5`). `--source copilot` / `source:copilot` filters
+  it like any other agent. Subagent delegation is not modelled: every Copilot round is
+  `agent: "main"`.
 
 - **Visual Studio's GitHub Copilot Chat**, read from the MessagePack session files it writes under
   `<project>/.vs/<solution>/copilot-chat/<hash>/sessions` — a different surface from Copilot CLI's
@@ -34,6 +39,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html). It is pub
   first round gets a real one, and none of it carries token usage. There is no per-user directory
   listing every project Visual Studio has opened, so this source is never part of a global sweep or
   `--all` — only naming a project by path (or running `probez collect` inside it) surfaces it.
+
+### Changed
+
+- **The store is rebuilt on upgrade** (schema 9), which re-reads Copilot CLI sessions collected
+  before the context reading above existed. `probez collect` does it; nothing needs re-running by
+  hand.
 
 ## [0.7.3] - 2026-09-25
 

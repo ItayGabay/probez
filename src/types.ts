@@ -179,6 +179,14 @@ export interface Round {
   in_cache_read: number | null
   out_tokens: number | null
   /**
+   * How much of the model's input window this round filled, when the source records that apart
+   * from `in_tokens`. Absent where `in_tokens` already is that size — every source but Copilot CLI,
+   * whose `in_tokens` is a share of a segment's billed total and says nothing about the window.
+   * Null there on a round the log gives no reading for, which is most of them. Read it through
+   * `contextTokens` (`src/models.ts`), never directly.
+   */
+  context_tokens?: number | null
+  /**
    * The compaction that ran immediately before this round, when one did.
    *
    * Null on every round that simply followed the one before it, which is nearly all of them.

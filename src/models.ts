@@ -107,6 +107,22 @@ export function contextWindow(model: string | null): number | null {
 }
 
 /**
+ * How many tokens of its model's input window a round filled, or null when that is not known.
+ *
+ * `in_tokens` for every source but one: a source that records the window apart from its billed
+ * input sets `context_tokens`, and then that field alone is the answer, null included — falling
+ * back to `in_tokens` there would report a billing share as a context size.
+ */
+export function contextTokens(round: Round): number | null {
+  // Checked by type rather than against null, because a store written by an earlier probez is read
+  // back as a raw cast and may not carry either field at all.
+  if (round.context_tokens !== undefined) {
+    return typeof round.context_tokens === 'number' ? round.context_tokens : null
+  }
+  return typeof round.in_tokens === 'number' ? round.in_tokens : null
+}
+
+/**
  * What share of its model's window a round's input filled, from 0 to 1.
  *
  * Null when the window is unknown or the session recorded no usage — Cursor transcripts do not —
@@ -114,8 +130,7 @@ export function contextWindow(model: string | null): number | null {
  */
 export function contextShare(round: Round): number | null {
   const window = contextWindow(round.model)
-  // Checked by type rather than against null, because a store written by an earlier probez is read
-  // back as a raw cast and may not carry the field at all.
-  if (window === null || typeof round.in_tokens !== 'number') return null
-  return round.in_tokens / window
+  const filled = contextTokens(round)
+  if (window === null || filled === null) return null
+  return filled / window
 }

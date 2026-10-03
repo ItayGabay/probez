@@ -165,9 +165,12 @@ interface ToolEntry {
  * share. A segment that never reaches a clean shutdown (the CLI killed mid-conversation, or resumed
  * again before one) reports no usage at all for the rounds in it, which is the ordinary case for
  * `--resume`, not a rare one — real sessions on this machine hold segments that never shut down
- * beside ones that did. `costOf` (`src/pricing.ts`) refuses to price a round with any of its five
- * counts still null, specifically because this file can now leave output known and input unknown on
- * the same round.
+ * beside ones that did. Those split shares are billing, not context: a round's share of a segment's
+ * summed input says nothing about how full its window was, so `in_tokens` here is never read as a
+ * context size. `context_tokens` carries that instead, and only on a segment's last round, from the
+ * shutdown's `currentTokens`; every other round has none. `costOf` (`src/pricing.ts`) refuses to
+ * price a round with any of its five counts still null, specifically because this file can now
+ * leave output known and input unknown on the same round.
  *
  * Subagent delegation is not modelled: nothing observed in a real session names a nested-session
  * convention the way Claude/Cursor's `subagents/` path or Codex's `session_meta.source` does.
@@ -243,6 +246,11 @@ export async function extractCopilotSession(
           if (usage !== null) applyCopilotUsage(group, usage)
         }
       }
+      // The one real reading of the window a segment gives: what it held when the segment ended,
+      // which is its last round's input plus that round's own reply. It belongs to that round and no
+      // other — the rounds before it filled less, by an amount the log does not record.
+      const last = segment[segment.length - 1]
+      if (last !== undefined) last.context_tokens = asIntOrNull(data.currentTokens)
       segment = []
       continue
     }
@@ -325,6 +333,7 @@ export async function extractCopilotSession(
       in_cache_write_1h: null,
       in_cache_read: null,
       out_tokens: asIntOrNull(data.outputTokens),
+      context_tokens: null,
       compaction: null,
       mcp_server: null,
       mcp_tool: null,

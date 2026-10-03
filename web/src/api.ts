@@ -154,6 +154,8 @@ export interface TraceRound {
   in_tokens: number | null
   in_cache_read: number | null
   out_tokens: number | null
+  /** How much of the input window this round filled; `in_tokens` except on Copilot CLI. */
+  context_tokens: number | null
   context_share: number | null
   context_window: number | null
   thinking_chars: number

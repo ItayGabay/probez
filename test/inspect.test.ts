@@ -897,6 +897,49 @@ test('a round with no model is unpriced rather than a $0 share', () => {
   assert.deepEqual(analysis.unpriced, [{ model: '(no model recorded)', rounds: 1 }])
 })
 
+test('a session peak reads context_tokens where a source sets it, while IN still sums in_tokens', () => {
+  // Copilot CLI: billed input split by output share, one real window reading per segment.
+  const rows = sessionRows(
+    [
+      round({ session: 'eeee5555', round: 0, in_tokens: 42_000, context_tokens: null }),
+      round({ session: 'eeee5555', round: 1, in_tokens: 3_000, context_tokens: 22_000 }),
+    ],
+    PRICING,
+  )
+  assert.equal(rows[0]!.peak_in_tokens, 22_000)
+  assert.equal(rows[0]!.in_tokens, 45_000)
+
+  const unread = sessionRows(
+    [round({ session: 'ffff6666', round: 0, in_tokens: 42_000, context_tokens: null })],
+    PRICING,
+  )
+  assert.equal(unread[0]!.peak_in_tokens, null)
+})
+
+test('a daily task peak reads context_tokens where a source sets it', () => {
+  const days = peakContextOccupancyDaily([
+    round({
+      session: 'eeee5555',
+      round: 0,
+      task: 1,
+      ts: '2026-03-01T10:00:00.000Z',
+      in_tokens: 400_000,
+      context_tokens: null,
+    }),
+    round({
+      session: 'eeee5555',
+      round: 1,
+      task: 1,
+      ts: '2026-03-01T10:01:00.000Z',
+      in_tokens: 1_000,
+      context_tokens: 100_000,
+    }),
+  ])
+  assert.equal(days.length, 1)
+  assert.equal(days[0]!.max_peak_tokens, 100_000)
+  assert.equal(days[0]!.max_occupancy, 0.1)
+})
+
 test('peak context occupancy is the daily mean of each task peak over its window', () => {
   // claude-opus-5 window is 1_000_000. Two tasks on the 1st at 40% and 60% → average 50%, max 60%.
   // A third task on the 2nd at 25%. Days sort chronologically.

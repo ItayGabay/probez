@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import { CONTEXT_WINDOWS, contextShare, contextWindow } from '../src/models.js'
+import { CONTEXT_WINDOWS, contextShare, contextTokens, contextWindow } from '../src/models.js'
 import { ROUND_DEFAULTS } from './support.js'
 
 test('a share is the round\'s input over its model\'s window', () => {
@@ -30,6 +30,23 @@ test('a round from a store written before the field existed has no share', () =>
   const older = { ...ROUND_DEFAULTS, model: 'claude-opus-5' } as Record<string, unknown>
   delete older.in_tokens
   assert.equal(contextShare(older as unknown as Parameters<typeof contextShare>[0]), null)
+})
+
+test('a round that records its window apart from billed input is read by that alone', () => {
+  // Copilot CLI's in_tokens is a share of a segment's billed total, not a window size: where
+  // context_tokens is set it wins, and a null there is no reading — not a fall back to in_tokens.
+  const haiku = { ...ROUND_DEFAULTS, model: 'claude-haiku-4-5', in_tokens: 42_600 }
+  const read = { ...haiku, context_tokens: 20_000 }
+  assert.equal(contextTokens(read), 20_000)
+  assert.equal(contextShare(read), 0.1)
+  const unread = { ...haiku, context_tokens: null }
+  assert.equal(contextTokens(unread), null)
+  assert.equal(contextShare(unread), null)
+})
+
+test('a round without context_tokens is read by its in_tokens, as every other source is', () => {
+  assert.equal(contextTokens({ ...ROUND_DEFAULTS, in_tokens: 80_000 }), 80_000)
+  assert.equal(contextTokens({ ...ROUND_DEFAULTS, in_tokens: null }), null)
 })
 
 test('the two tables name the same models, in both directions', async () => {
