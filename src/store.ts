@@ -18,6 +18,12 @@ import { basename, dirname, join, resolve, sep } from 'node:path'
 import { createInterface } from 'node:readline'
 
 import { isAgentSource, isRoundSource, safeSessionFilename, sessionIdFromFilename } from './agents/paths.js'
+import {
+  type CopilotVsCall,
+  defaultCopilotVsLogDir,
+  harvestCopilotVsLogs,
+  readCopilotVsUsage,
+} from './copilot-vs-log.js'
 import { applyCursorUsage, readCursorUsage } from './cursor-usage.js'
 import { readToolResults } from './result.js'
 import { extractCodexSession, isCodexRecord } from './extract-codex.js'
@@ -35,7 +41,7 @@ import type { AgentSource, Project, Round, RoundSource, SessionFile } from './ty
  * Exported so a test that builds a store by hand builds the current one: a fixture with a version
  * number typed into it is a fixture that silently stops being read the next time this moves.
  */
-export const SCHEMA_VERSION = 9
+export const SCHEMA_VERSION = 10
 
 export interface Summary {
   project: string
@@ -754,7 +760,7 @@ async function withArchived(
 export async function collectProject(
   project: Project,
   dataDir: string,
-  options: { full?: boolean; since?: number } = {},
+  options: { full?: boolean; since?: number; copilotVsLogDir?: string } = {},
 ): Promise<CollectResult> {
   const dir = projectDir(dataDir, project)
   const roundsFile = join(dir, 'rounds.jsonl')
@@ -824,6 +830,15 @@ export async function collectProject(
   // round it yields is recorded with no commit, which is the honest answer rather than a failure.
   const head = stale.length > 0 ? await readHeadHistory(project.path) : null
 
+  // Visual Studio's Copilot Chat sessions carry no usage; its log does, for as long as Visual
+  // Studio keeps the log. Copied into the data directory before any session is read, so a session
+  // read now gets what the log holds today, and one rebuilt after the log is gone still gets it.
+  let copilotVsCalls: CopilotVsCall[] = []
+  if (stale.some((session) => session.vs === true)) {
+    await harvestCopilotVsLogs(options.copilotVsLogDir ?? defaultCopilotVsLogDir(), dataDir)
+    copilotVsCalls = await readCopilotVsUsage(dataDir)
+  }
+
   let newRounds = 0
   for (const session of stale) {
     const rounds =
@@ -833,7 +848,7 @@ export async function collectProject(
           ? await extractCodexSession(session.file, session.id, head)
           : session.source === 'copilot'
             ? session.vs === true
-              ? await extractCopilotVsSession(session.file, session.id, head)
+              ? await extractCopilotVsSession(session.file, session.id, head, copilotVsCalls)
               : await extractCopilotSession(session.file, session.id, head)
             : await extractSession(session.file, session.id, head)
     // Cursor transcripts have no usage. Hook events under the data dir are merged here so a

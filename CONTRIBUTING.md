@@ -183,11 +183,16 @@ output in `dist/test/`, which is why `npm test` builds first.
   `user_message`, usage from `token_count`, `shell` argv, `apply_patch`, and subagent metadata.
 - `test/extract-copilot.test.ts` covers Copilot CLI sessions: one round per `assistant.message`,
   tasks from `user.message`, a tool's result becoming the next round's leading input event, a
-  failed call's body falling through the shared error rules to `other`, and usage staying null.
+  failed call's body falling through the shared error rules to `other`, a segment's usage split by
+  output share, and its window size landing on the segment's last round.
 - `test/extract-copilot-vs.test.ts` covers Visual Studio's GitHub Copilot Chat sessions: one round
   per response turn grouped by `CorrelationId`, a regenerated answer yielding one round per response
-  under the same task, a dangling request with no response yielding no round, and only the session's
-  first round carrying a real timestamp.
+  under the same task, a dangling request with no response yielding no round, only the session's
+  first round carrying a real timestamp, and a round's usage coming from its request's logged
+  calls — summed for cost, the largest prompt for context — or staying null without them.
+- `test/copilot-vs-log.test.ts` covers reading Visual Studio's Copilot log: each call belonging to
+  the request most recently begun, the model's prompt cap from the log's model list, and the
+  sidecar keeping every call once, across re-reads and after the log is deleted.
 - `test/msgpack.test.ts` covers the MessagePack decoder VS Copilot Chat sessions are read through:
   every primitive type, nested arrays and maps, the timestamp extension, and an unrecognised byte
   ending the walk without losing what decoded before it.

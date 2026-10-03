@@ -40,11 +40,37 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html). It is pub
   listing every project Visual Studio has opened, so this source is never part of a global sweep or
   `--all` — only naming a project by path (or running `probez collect` inside it) surfaces it.
 
+- **Tokens, Cost and context for Visual Studio's GitHub Copilot Chat**, from Visual Studio's own
+  diagnostic log under `%TEMP%\VSGitHubCopilotLogs` (`--copilot-vs-log-dir` to point elsewhere).
+  The log records every model call: the whole prompt sent, how much of it was cached, the output,
+  and — on the line before — which session (`ConversationId`) and request (`CorrelationId`) it
+  answered, the same ids the session file pairs a request with its response by. A round, which is
+  one response and often several model calls, gets the calls summed for Tokens and Cost and the
+  largest single prompt for context, measured against the prompt cap Copilot puts on the model in
+  the log's own model list — 128,000 for `gpt-5-mini`, where OpenAI allows 272,000. A round can now
+  carry that cap as `context_window`, which outranks the published table wherever it is set.
+
+  **It does not work for older chats.** Visual Studio keeps the log only briefly — a new one each
+  launch, older ones cleared — and nothing else on disk records what a chat used. So a chat whose
+  log was gone before probez first read it stays without Tokens, Cost or context, and no later
+  collect can change that. To keep them, each collect copies every call it finds into
+  `~/.probez/copilot-vs-usage.jsonl`, the way Cursor's hook usage is kept: once read, the numbers
+  outlive the log, and a store rebuilt later still has them. A request Copilot answered more than
+  once leaves its rounds without usage, since the log cannot divide the calls between the answers,
+  and two chat windows answering at the same moment would interleave in the log with no way to tell
+  them apart.
+
+- **A rate for `gpt-5-mini`**, Visual Studio Copilot Chat's default model: $0.25 input, $0.025
+  cached, $2 output per million tokens — OpenAI's published price, and the same figures GitHub's
+  own model list in that log carries. Its window is the 272,000 of input the rest of the GPT-5
+  generation has; a Visual Studio round measures against Copilot's lower cap instead.
+
 ### Changed
 
-- **The store is rebuilt on upgrade** (schema 9), which re-reads Copilot CLI sessions collected
-  before the context reading above existed. `probez collect` does it; nothing needs re-running by
-  hand.
+- **The store is rebuilt on upgrade** (schema 10), which re-reads Copilot CLI sessions collected
+  before the context reading above existed, and Visual Studio Copilot Chat sessions collected
+  before their log was read. `probez collect` does it; nothing needs re-running by hand. A Visual
+  Studio chat only gains usage this way if its log still exists when the rebuild runs.
 
 ## [0.7.3] - 2026-09-25
 

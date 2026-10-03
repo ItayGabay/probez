@@ -180,12 +180,21 @@ export interface Round {
   out_tokens: number | null
   /**
    * How much of the model's input window this round filled, when the source records that apart
-   * from `in_tokens`. Absent where `in_tokens` already is that size — every source but Copilot CLI,
-   * whose `in_tokens` is a share of a segment's billed total and says nothing about the window.
-   * Null there on a round the log gives no reading for, which is most of them. Read it through
-   * `contextTokens` (`src/models.ts`), never directly.
+   * from `in_tokens`. Absent where `in_tokens` already is that size — every source but Copilot. On
+   * Copilot CLI `in_tokens` is a share of a segment's billed total, and this is null on every round
+   * but a segment's last; on Visual Studio Copilot Chat a round is several model calls whose input
+   * `in_tokens` sums, and this is the largest one. Read it through `contextTokens`
+   * (`src/models.ts`), never directly.
    */
   context_tokens?: number | null
+  /**
+   * The input room the harness itself enforced on this round, when the source records it. Copilot
+   * caps a model below what its maker allows — `gpt-5-mini` at 128,000 prompt tokens against
+   * OpenAI's 272,000 — and a share of the larger figure would understate how close a session came
+   * to being summarized. Absent everywhere else, where the published table is the answer. Read it
+   * through `contextWindowOf` (`src/models.ts`), never directly.
+   */
+  context_window?: number | null
   /**
    * The compaction that ran immediately before this round, when one did.
    *

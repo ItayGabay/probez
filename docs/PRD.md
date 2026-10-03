@@ -50,15 +50,17 @@ These are choices, not omissions:
   retroactive: turns that finished before it was installed stay without usage. Subagent usage is not
   in the hook payload and stays blank. Codex rollouts often do record usage; cost still stays blank
   until a rate exists for that model. Copilot CLI's `events.jsonl` gives a real output-token count
-  per round but only a cumulative, session-wide input-token total — too coarse to attribute to one
-  round — so, with no hook to close the gap, Copilot rounds keep usage blank the same way pre-hook
-  Cursor rounds do. Visual Studio's GitHub Copilot Chat persists as the same `copilot` source from a
-  different file — a MessagePack session written inside the project itself rather than under a
-  per-user directory — and gives neither a per-turn timestamp nor any token count at all, so those
-  rounds stay unmeasured throughout. A repository used by more than one agent is one project;
-  `source` on the round is the filterable dimension, not a second store. `--source` on collect
-  selects which directories to scan; on read commands it filters stored rounds and does not restrict
-  discovery.
+  per round and a session-wide input total at each shutdown, split across that stretch's rounds by
+  output share for cost; context comes from the window size each shutdown records, never from that
+  split. Visual Studio's GitHub Copilot Chat persists as the same `copilot` source from a different
+  file — a MessagePack session written inside the project itself rather than under a per-user
+  directory — that gives neither a per-turn timestamp nor any token count. Its usage comes from
+  Visual Studio's own diagnostic log, which records every model call and the request it answered;
+  each collect copies those calls into the data directory, because Visual Studio keeps the log only
+  briefly and a chat whose log is gone before probez reads it stays unmeasured. A repository used by
+  more than one agent is one project; `source` on the round is the filterable dimension, not a
+  second store. `--source` on collect selects which directories to scan; on read commands it filters
+  stored rounds and does not restrict discovery.
 
 ## Users
 

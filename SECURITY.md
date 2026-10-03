@@ -13,7 +13,11 @@ Claude Code session files under `~/.claude/projects`, Cursor agent transcripts u
 `~/.cursor/projects`, Codex CLI rollouts under `~/.codex/sessions` (or `$CODEX_HOME/sessions`), and
 GitHub Copilot CLI sessions under `~/.copilot/session-state` (or `$COPILOT_HOME/session-state`), and
 Visual Studio's GitHub Copilot Chat sessions under `<project>/.vs/<solution>/copilot-chat` inside
-the project itself.
+the project itself, along with Visual Studio's own Copilot log under `%TEMP%\VSGitHubCopilotLogs`,
+since that log is the only record of what those chats used. probez reads three kinds of line from
+it — which request a model call answered, that call's token counts, and the model list's prompt
+caps — and copies only those numbers and ids into `copilot-vs-usage.jsonl` in its data directory.
+The prompts and replies the log also contains are not copied anywhere.
 Claude and Cursor write a subagent's run to a `subagents/` directory beside the session that spawned
 it; Codex names a subagent on the rollout's `session_meta`. Those are read too — a subagent's
 transcript is a session like any other here, and is copied into the store on the same terms as the

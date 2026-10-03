@@ -206,6 +206,7 @@ const GLOBAL_FLAGS = new Set([
   'cursor-dir',
   'codex-dir',
   'copilot-dir',
+  'copilot-vs-log-dir',
   'source',
   'version',
   'help',
@@ -519,6 +520,8 @@ Options (these work on every command)
                                (default ~/.codex/sessions, or \$CODEX_HOME/sessions)
   --copilot-dir <dir>          Where to read GitHub Copilot CLI sessions from
                                (default ~/.copilot/session-state, or \$COPILOT_HOME/session-state)
+  --copilot-vs-log-dir <dir>   Where to read Visual Studio's Copilot Chat logs from, for tokens,
+                               cost and context (default %TEMP%\\VSGitHubCopilotLogs)
   --source claude|cursor|codex|copilot|all
                                On collect and projects: which agent directories to scan.
                                On read commands: filter stored rounds, collecting nothing.
@@ -2429,6 +2432,7 @@ async function main(): Promise<void> {
         'cursor-dir': { type: 'string' },
         'codex-dir': { type: 'string' },
         'copilot-dir': { type: 'string' },
+        'copilot-vs-log-dir': { type: 'string' },
         source: { type: 'string' },
         json: { type: 'boolean', default: false },
         all: { type: 'boolean', default: false },
@@ -3211,6 +3215,9 @@ async function main(): Promise<void> {
     try {
       const collected = await collectProject(project, dataDir, {
         full: values.full,
+        ...(values['copilot-vs-log-dir']
+          ? { copilotVsLogDir: resolve(values['copilot-vs-log-dir']) }
+          : {}),
         ...(window === null ? {} : { since: window }),
       })
       results.push(collected)
