@@ -139,7 +139,7 @@ export interface StoredProject {
   imported_at: string | null
   /** When this arrived darkened, or null when what it holds is as it was recorded. */
   darkened_at: string | null
-  sources: Array<'claude-code' | 'cursor' | 'codex'>
+  sources: Array<'claude-code' | 'cursor' | 'codex' | 'copilot'>
 }
 
 export interface TraceRound {
@@ -154,6 +154,8 @@ export interface TraceRound {
   in_tokens: number | null
   in_cache_read: number | null
   out_tokens: number | null
+  context_share: number | null
+  context_window: number | null
   thinking_chars: number
   tools: number
   errors: number
@@ -295,7 +297,7 @@ export interface ViewSession extends Totals {
   /** "sub" when a subagent ran this session, matching the field a round carries. */
   agent: 'main' | 'sub'
   /** Which product produced this session. Mirrors `SessionRow.source`. */
-  source: 'claude-code' | 'cursor' | 'codex' | 'unknown'
+  source: 'claude-code' | 'cursor' | 'codex' | 'copilot' | 'unknown'
   rounds: number
   /** Rounds whose model has no rate, and which therefore added nothing to `cost`. */
   unpriced: number
@@ -304,6 +306,10 @@ export interface ViewSession extends Totals {
   errors: number
   /** Round numbers in this session that had a harness-reported tool error. */
   error_rounds: number[]
+  /** Largest `in_tokens` any round recorded; null when none had usage. Not the session sum. */
+  peak_in_tokens: number | null
+  /** Input room of the model on the peak round, or null when unknown. */
+  peak_context_window: number | null
   first_ts: string | null
   last_ts: string | null
   model: string | null
@@ -481,6 +487,31 @@ export interface ProjectPayload {
   unpriced: number
   analysis: Analysis
   sessions: ViewSession[]
+  trends: {
+    peak_context_occupancy: PeakContextDay[]
+    reused_vs_fresh: ReusedFreshDay[]
+  }
+}
+
+/** One day of peak context (occupancy % and/or peak tokens). See `peakContextOccupancyDaily`. */
+export interface PeakContextDay {
+  day: string
+  average_occupancy: number | null
+  max_occupancy: number | null
+  with_window: number
+  average_peak_tokens: number | null
+  max_peak_tokens: number | null
+  with_tokens: number
+  tasks: number
+}
+
+/** One day of reused vs fresh input volume. See `reusedVsFreshDaily`. */
+export interface ReusedFreshDay {
+  day: string
+  reused: number | null
+  fresh: number | null
+  tasks: number
+  with_split: number
 }
 
 export interface SessionPayload {
@@ -775,7 +806,7 @@ export interface SearchHit {
   ts?: string | null
   model?: string | null
   agent?: 'main' | 'sub'
-  source?: 'claude-code' | 'cursor' | 'codex' | 'unknown'
+  source?: 'claude-code' | 'cursor' | 'codex' | 'copilot' | 'unknown'
   ms?: number | null
   cost?: number | null
   in_tokens?: number | null

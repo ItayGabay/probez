@@ -284,6 +284,7 @@ test('setSourceQuery replaces a source token rather than appending another', () 
   assert.equal(setSourceQuery('tool:Bash', 'claude'), 'tool:Bash source:claude')
   assert.equal(setSourceQuery('source:cursor', null), '')
   assert.equal(sourceQueryOf('tool:Bash source:claude source:codex'), 'codex')
+  assert.equal(sourceQueryOf('tool:Bash source:copilot'), 'copilot')
 })
 
 test('a model is matched anywhere in its name, since nobody types the whole of one', () => {

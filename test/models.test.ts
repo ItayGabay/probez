@@ -57,3 +57,16 @@ test('a GPT window is the room for input, not the headline number', () => {
   assert.equal(contextWindow('gpt-5.3-codex'), 272_000)
   assert.equal(contextWindow('gpt-5.6-terra'), 922_000)
 })
+
+test('a dotted point version reports the window of the model it names', () => {
+  // GitHub Copilot CLI records `claude-haiku-4.5`, matching how the model is marketed rather than
+  // the table's `claude-haiku-4-5`.
+  assert.equal(contextWindow('claude-haiku-4.5'), contextWindow('claude-haiku-4-5'))
+})
+
+test('an id already in the table by its dotted spelling is never rewritten', () => {
+  // gpt-5.6-sol is a real key with a dot in it. The exact match has to win before the dotted-version
+  // fallback ever runs, or this would be misread as a dotted spelling of a model called
+  // `gpt-5-6-sol`, which does not exist.
+  assert.equal(contextWindow('gpt-5.6-sol'), 922_000)
+})

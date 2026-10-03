@@ -11,11 +11,13 @@ const here = dirname(fileURLToPath(import.meta.url))
 const CLAUDE = join(here, '..', '..', 'test', 'fixtures', 'session.jsonl')
 const CURSOR = join(here, '..', '..', 'test', 'fixtures', 'cursor-session.jsonl')
 const CODEX = join(here, '..', '..', 'test', 'fixtures', 'codex-session.jsonl')
+const COPILOT = join(here, '..', '..', 'test', 'fixtures', 'copilot-session.jsonl')
 
 test('sniffSource recognises transcript format, not missing tokens', async () => {
   assert.equal(await sniffSource(CLAUDE), 'claude-code')
   assert.equal(await sniffSource(CURSOR), 'cursor')
   assert.equal(await sniffSource(CODEX), 'codex')
+  assert.equal(await sniffSource(COPILOT), 'copilot')
 })
 
 test('sniffSource returns unknown when the file is not a known transcript', async () => {

@@ -38,7 +38,7 @@ cd ~/any/project-you-work-in
 probez collect
 ```
 
-It reads [Claude Code](https://claude.com/claude-code) sessions from `~/.claude/projects`, [Cursor](https://cursor.com) transcripts from `~/.cursor/projects`, and [Codex](https://github.com/openai/codex) CLI rollouts from `~/.codex/sessions` (or `$CODEX_HOME/sessions`), then writes
+It reads [Claude Code](https://claude.com/claude-code) sessions from `~/.claude/projects`, [Cursor](https://cursor.com) transcripts from `~/.cursor/projects`, [Codex](https://github.com/openai/codex) CLI rollouts from `~/.codex/sessions` (or `$CODEX_HOME/sessions`), and [GitHub Copilot](https://github.com/github/copilot-cli) CLI sessions from `~/.copilot/session-state` (or `$COPILOT_HOME/session-state`), then writes
 one record per LLM round under `~/.probez`. Run it again whenever you want to catch up — it reads
 only what changed. `probez collect --all` does every project on the machine at once, and a
 project it cannot collect is reported and stepped over rather than ending the run — the others are
@@ -47,8 +47,16 @@ used in more than one agent is one project. Cursor transcripts omit token usage;
 `probez hook --install` once so Cursor's stop hook records them, then `collect` attaches the
 counts. The hook is not retroactive — only turns after it is installed get Tokens and Cost;
 `collect` cannot invent usage for older Cursor sessions. Without the hook those rounds stay
-outside Tokens and Cost. Each round records which product produced it; filter with `--source` or
-`source:` rather than treating agents as separate projects.
+outside Tokens and Cost. Copilot CLI's own log gives a real output-token count per round but only
+a cumulative, session-wide input-token total — too coarse to attribute to one round without
+misreporting cost — so Copilot rounds stay outside Tokens and Cost too, with no hook to close the
+gap. Visual Studio's GitHub Copilot Chat is read too, from `<project>/.vs/<solution>/copilot-chat`
+inside the project itself rather than from a per-user directory — there is nowhere to list every
+project it has opened, so naming the project by path (or running `probez collect` inside it) is
+what picks these sessions up; `--all` does not. That file has no per-turn timestamp, no token
+counts, and Copilot's reasoning is encrypted at rest, so those stay unmeasured the same way. Each
+round records which product produced it; filter with `--source` or `source:` rather than treating
+agents as separate projects.
 
 **3. Look at what came back**, in the browser or in the terminal:
 
@@ -86,7 +94,7 @@ rounds that matched lit and the rest of the task drawn around them — the point
 task* the matches fall, which a filtered list cannot show. The bar starts scoped to whatever page
 you were on; the chip beside the query is what widens it to the whole store. The Source control
 next to the bar filters the page you are on — same project, that agent's sessions. Typing
-`source:claude` (or cursor, or codex) in the query bar is still a search. Neither changes what Sync
+`source:claude` (or cursor, codex, or copilot) in the query bar is still a search. Neither changes what Sync
 collects.
 
 **A project** — where its work went, what each kind of work cost, and the sessions it happened in.
@@ -254,7 +262,7 @@ Lists take `--limit` and always say how many rows they withheld. `rounds` filter
 `clear` takes `--all`, `--before` and `--yes`, and `collect` takes `--since`.
 `export` takes `--bundle`, `--darken` and `--out`, and `import` takes `--as`.
 `--source` on `collect` and `projects` selects which agent directories to scan (Claude Code, Cursor,
-Codex, or all). On the read commands — `sessions`, `tasks`, `rounds`, `analyze`, `tools`, `find`,
+Codex, Copilot, or all). On the read commands — `sessions`, `tasks`, `rounds`, `analyze`, `tools`, `find`,
 `trails`, `questions`, `view` — the same flag filters already-collected rounds and does not restrict
 discovery. `source:claude` is that filter in a query, and matches persisted `claude-code`. `--json`
 works everywhere. `probez --help` lists every flag under the command it belongs to.
@@ -269,6 +277,8 @@ Cursor's `stop` hook writes each parent-agent turn's tokens into `~/.probez/curs
 The next `probez collect` attaches them to matching Cursor tasks — split across tool-using rounds
 by the same weights as the work categories, not onto a trailing prose-only reply. Claude and Codex
 usage still come only from their own logs. Without the hook, Cursor Tokens and Cost stay blank.
+Copilot CLI has no hook to install: its log gives no per-round input-token count at all, so
+Copilot Tokens and Cost stay blank regardless.
 Past Cursor turns from before the hook was installed stay blank too — collect does not backfill
 them.
 
@@ -290,21 +300,17 @@ probez  flowz-agentic-sdlc  ~/Dev/workspace/flowz-agentic-sdlc
 Sessions of a project, newest last:
 
 ```console
-$ probez sessions flowz-mcp
+$ probez sessions flowz-agentic-sdlc
 
-  flowz-mcp  ~/Dev/workspace/flowz-mcp
+  flowz-agentic-sdlc  ~/Dev/workspace/flowz-agentic-sdlc
 
-  SESSION    SOURCE   ROUNDS  TASKS  TOOLS           IN      OUT       COST  WORK       LAST
-  0bfa7fe3   claude      127      5  122 ✗1       21.6M   186.4K     $18.08  Impl 37%   29 days ago
-  0b2cc149   claude       87      4  84 ✗2        10.1M    97.6K      $9.18  Impl 38%   29 days ago
-  51cced08   claude      134      4  131          24.3M   138.1K     $22.57  Impl 39%   28 days ago
-  be254122   claude       21      2  19 ✗1         1.0M     8.2K      $1.08  Recon 55%  28 days ago
-  bfd594d9   claude       73      2  72 ✗1        10.4M    74.6K      $8.87  Recon 34%  28 days ago
-  6ffef9bc   claude       33      4  30            2.2M    17.5K      $2.19  Recon 52%  24 days ago
-  c21c7448   claude      146      2  145 ✗4       22.8M   112.6K     $18.83  Recon 43%  23 days ago
-  069d8593   claude       31      1  30 ✗2         1.9M    11.3K      $1.76  Recon 72%  22 days ago
+  SESSION    SOURCE   ROUNDS  TASKS  TOOLS           IN        PEAK      OUT       COST  WORK       LAST
+  9654bb28   claude        6      2  5           296.7K    56.0K/6%     7.4K      $0.62  Recon 100% 27 days ago
+  c19fb0d0   claude       16      3  21            1.0M    85.6K/9%    13.5K      $1.63  Recon 79%  27 days ago
+  b53b6b6b   claude       98      2  110 ✗9       14.3M  216.8K/22%    66.0K     $12.85  Recon 60%  26 days ago
+  5ac80871   claude       58      5  53            7.7M  173.5K/17%    45.6K      $6.57  Recon 97%  25 days ago
 
-  8 sessions · 652 rounds · $82.58
+  4 sessions · 178 rounds · $21.67
   `probez session <id>` shows one of them, task by task.
 ```
 
@@ -313,19 +319,19 @@ handed it over. It is a separate context with its own model and its own bill, so
 separately rather than folded into the session that delegated it:
 
 ```console
-$ probez sessions flowz-agentic-sdlc --limit 6
+$ probez sessions delivery-bench --limit 6
 
-  flowz-agentic-sdlc  ~/Dev/workspace/flowz-agentic-sdlc
+  delivery-bench  ~/Dev/benchmarks/delivery-bench
 
-  SESSION            AGENT SOURCE   ROUNDS  TASKS  TOOLS           IN      OUT       COST  WORK       LAST
-  6b45d8d7/a5420a73  sub   claude        7      1  17          182.4K     5.8K      $0.84  Recon 83%  1 mo ago
-  6b45d8d7/ab80aaad  sub   claude        8      1  16          197.9K     5.4K      $0.86  Recon 86%  1 mo ago
-  6b45d8d7           main  claude      122      8  234 ✗1       58.6M   139.5K     $76.13  Docs 29%   1 mo ago
-  15ac167d/a29da1c6  sub   claude        7      1  19          135.0K     9.1K      $0.94  Recon 93%  1 mo ago
-  15ac167d/ad108a22  sub   claude       18      1  38          515.5K    17.7K      $1.99  Plan 65%   1 mo ago
-  15ac167d           main  claude      150     16  298 ✗3       27.6M   180.4K     $42.13  Docs 28%   1 mo ago
+  SESSION            AGENT SOURCE   ROUNDS  TASKS  TOOLS           IN        PEAK      OUT       COST  WORK       LAST
+  3d345edb/ae4f9f73  sub   claude        9      1  16          244.9K    44.4K/4%     7.9K      $0.55  Recon 77%  29 days ago
+  3d345edb/aa4460b1  sub   claude       12      1  20          388.7K    53.1K/5%    10.8K      $0.74  Recon 100% 29 days ago
+  3d345edb/af20cf33  sub   claude       15      1  26          532.1K    56.0K/6%     5.6K      $0.73  Recon 98%  29 days ago
+  3d345edb           main  claude      298     51  249 ✗3       78.4M  480.9K/48%   301.5K     $52.89  Recon 78%  29 days ago
+  973db092           main  claude      327     20  321 ✗9       70.0M  381.8K/38%   192.3K     $43.34  Recon 63%  29 days ago
+  890b47ba           main  claude       20      4  21            1.1M    67.2K/7%    10.7K      $1.97  Recon 83%  28 days ago
 
-  showing 6 of 27 sessions · 3922 rounds · $963.20, --limit 0 for all
+  showing 6 of 13 sessions · 1286 rounds · $200.57, --limit 0 for all
   `probez session <id>` shows one of them, task by task.
 ```
 

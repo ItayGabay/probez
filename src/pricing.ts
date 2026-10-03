@@ -120,11 +120,16 @@ export function defaultPricing(): Pricing {
   return {
     schema_version: PRICING_VERSION,
     models: {
-      // Claude. Cache reads on the 5.1 pair are 0.025× input, not the 0.1× every other model uses.
+      // Claude. The 0.1× cache read is the usual multiplier, not a universal one: the 5.1 pair read
+      // at 0.025× input and Opus 5.5 at 0.05×, so both say so rather than inheriting the default.
       'claude-fable-5-1': rates(10, 50, { cacheRead: 0.025 }),
       'claude-mythos-5-1': rates(10, 50, { cacheRead: 0.025 }),
       'claude-fable-5': rates(10, 50),
       'claude-mythos-5': rates(10, 50),
+      // Cheaper than the Opus 5 it follows — $4/$20 against $5/$25 — which is the first time that
+      // has happened in this table, and the reason a store spanning the two cannot read a fall in
+      // cost per round as a fall in how much was asked for.
+      'claude-opus-5-5': rates(4, 20, { cacheRead: 0.05 }),
       'claude-opus-5': rates(5, 25),
       'claude-opus-4-8': rates(5, 25),
       'claude-opus-4-7': rates(5, 25),
@@ -276,6 +281,22 @@ export function priceOf(pricing: Pricing, model: string | null, charged: Charged
   if (id === null) return null
   const rate = pricing.models[id]
   if (rate === undefined || rate === null) return null
+  // A full price needs every component measured, not just some of them. Copilot CLI's rounds carry
+  // a real per-round output-token count, but input tokens are known only when a session's usage
+  // checkpoint could be matched back to the round (see extract-copilot.ts) — so a round can have a
+  // real `out` and every input field null. Pricing the output alone there would print a real dollar
+  // figure that silently omits the larger, unmeasured half of the bill, which is worse than the
+  // blank it would otherwise show: a count that was never measured must not be charged as zero,
+  // whether that is every count or only some of them.
+  if (
+    charged.uncached === null ||
+    charged.write_5m === null ||
+    charged.write_1h === null ||
+    charged.cache_read === null ||
+    charged.out === null
+  ) {
+    return null
+  }
   return (
     ((charged.uncached || 0) * rate.in +
       (charged.write_5m || 0) * rate.cache_write_5m +

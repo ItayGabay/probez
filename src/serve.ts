@@ -85,6 +85,8 @@ export interface ServeOptions {
   cursorDir: string
   /** Where Codex CLI rollouts live. Same as `claudeDir`: only `sync` reads it. */
   codexDir: string
+  /** Where GitHub Copilot CLI sessions live. Same as `claudeDir`: only `sync` reads it. */
+  copilotDir: string
   /** Port to listen on. 0 lets the OS choose, which is what the tests want. */
   port?: number
   /** Fail rather than move to another port. True when `--port` was typed. */
@@ -524,7 +526,11 @@ async function serveApi(
   }
   if (kind === 'sync' && id === undefined) {
     // Reachable only as POST; the method check upstream has already refused a GET here.
-    sendJson(res, 200, await syncProject(dataDir, options.claudeDir, options.cursorDir, options.codexDir, slug))
+    sendJson(
+      res,
+      200,
+      await syncProject(dataDir, options.claudeDir, options.cursorDir, options.codexDir, options.copilotDir, slug),
+    )
     return
   }
   if (kind === 'rename' && id === undefined) {
