@@ -67,6 +67,15 @@ test("a segment's shutdown usage is split across its rounds by output share", ()
   }
 })
 
+test("a segment's window size lands on its last round alone", () => {
+  // The shutdown's currentTokens is what the window held when the segment ended. The split
+  // in_tokens above are billing shares, so they are never what the context views read.
+  assert.deepEqual(
+    rounds.map((r) => r.context_tokens),
+    [null, null, 14500],
+  )
+})
+
 test('a segment that never reaches a shutdown reports no usage for its rounds', async () => {
   const lines = [
     { type: 'session.start', data: { selectedModel: 'claude-haiku-4.5' }, id: 'e0', timestamp: '2026-01-06T00:00:00.000Z', parentId: null },
@@ -92,6 +101,7 @@ test('a segment that never reaches a shutdown reports no usage for its rounds', 
   assert.equal(built.length, 2)
   assert.equal(built[0]!.out_tokens, 5)
   assert.equal(built[0]!.in_tokens, null)
+  assert.equal(built[0]!.context_tokens, null)
   assert.equal(built[1]!.out_tokens, 7)
   assert.equal(built[1]!.in_uncached, 1000)
 })

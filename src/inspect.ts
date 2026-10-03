@@ -4,7 +4,7 @@ import { CATEGORIES, categoryInfo, classifyCall } from './classify.js'
 import type { Category, Label } from './classify.js'
 import { benign, failed } from './errors.js'
 import { shortSession } from './format.js'
-import { contextShare, contextWindow } from './models.js'
+import { contextShare, contextTokens, contextWindow } from './models.js'
 import { costOf } from './pricing.js'
 import type { Pricing } from './pricing.js'
 import type { Question } from './question.js'
@@ -70,8 +70,9 @@ export interface SessionRow extends Totals {
    */
   error_rounds: number[]
   /**
-   * Largest `in_tokens` any round in this session recorded. Null when no round had usage — not the
-   * same as a peak of zero. Distinct from `in_tokens`, which is the sum across rounds.
+   * Largest context (`contextTokens`, which is `in_tokens` on every source but Copilot CLI) any
+   * round in this session recorded. Null when no round had a reading — not the same as a peak of
+   * zero. Distinct from `in_tokens`, which is the sum across rounds.
    */
   peak_in_tokens: number | null
   /**
@@ -279,9 +280,10 @@ export function sessionRows(rounds: Round[], pricing: Pricing): SessionRow[] {
     tasks.add(round.task)
     if (costOf(round, pricing) === null) row.unpriced += 1
     addTotals(row, round, pricing)
-    if (typeof round.in_tokens === 'number') {
-      if (row.peak_in_tokens === null || round.in_tokens > row.peak_in_tokens) {
-        row.peak_in_tokens = round.in_tokens
+    const filled = contextTokens(round)
+    if (filled !== null) {
+      if (row.peak_in_tokens === null || filled > row.peak_in_tokens) {
+        row.peak_in_tokens = filled
         row.peak_context_window = contextWindow(round.model)
       }
     }
@@ -410,8 +412,8 @@ interface TaskPeak {
 /**
  * Daily peak context series: average (and max) occupancy %, and average (and max) peak tokens.
  *
- * Per task: `max(in_tokens)`, then that count over `contextWindow` of the round that set the peak
- * when a window is published. No window → no percent for that task; the peak tokens still count.
+ * Per task: `max(contextTokens)` — `in_tokens` on every source but Copilot CLI — then that count
+ * over `contextWindow` of the round that set the peak when a window is published. No window → no percent for that task; the peak tokens still count.
  * Days are the UTC date of `first_ts`; tasks with no timestamp are dropped from the series rather
  * than inventing a bucket.
  */
@@ -431,12 +433,13 @@ export function peakContextOccupancyDaily(rounds: Round[]): PeakContextDay[] {
     if (typeof round.ts === 'string' && (entry.first_ts === null || round.ts < entry.first_ts)) {
       entry.first_ts = round.ts
     }
-    if (typeof round.in_tokens !== 'number') continue
-    if (entry.peak === null || round.in_tokens > entry.peak) {
-      entry.peak = round.in_tokens
+    const filled = contextTokens(round)
+    if (filled === null) continue
+    if (entry.peak === null || filled > entry.peak) {
+      entry.peak = filled
       entry.window = contextWindow(round.model)
     } else if (
-      entry.peak === round.in_tokens &&
+      entry.peak === filled &&
       entry.window === null &&
       contextWindow(round.model) !== null
     ) {
@@ -1026,7 +1029,13 @@ export interface TraceRound {
   in_cache_read: number | null
   out_tokens: number | null
   /**
-   * How full the model's input window this round's `in_tokens` were, from 0 to 1.
+   * How much of the model's input window this round filled, in tokens — `contextTokens`, which is
+   * `in_tokens` except on a source that records the window apart from billed input. Null when the
+   * round has no reading.
+   */
+  context_tokens: number | null
+  /**
+   * What share of the model's input window this round filled, from 0 to 1.
    * Null when the window is unknown or the round recorded no usage — never a guess.
    */
   context_share: number | null
@@ -1135,6 +1144,7 @@ export function traceOf(rounds: Round[], options: { window?: number } = {}): Tra
       in_tokens: round.in_tokens,
       in_cache_read: round.in_cache_read,
       out_tokens: round.out_tokens,
+      context_tokens: contextTokens(round),
       context_share: contextShare(round),
       context_window: contextWindow(round.model),
       thinking_chars: round.thinking_chars || 0,
