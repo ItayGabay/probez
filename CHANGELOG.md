@@ -8,6 +8,33 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html). It is pub
 
 ## [Unreleased]
 
+### Added
+
+- **GitHub Copilot CLI as a fourth source.** `probez collect` reads sessions from
+  `~/.copilot/session-state` (or `$COPILOT_HOME/session-state`), one directory per session, each
+  carrying a `workspace.yaml` naming the cwd it ran in and an `events.jsonl` event stream. A round
+  is one `assistant.message`; a tool's result becomes the next round's leading input event, the
+  same convention Claude and Codex use. Tool calls carry real input and result data, including
+  success/failure. Output tokens are a real per-round count (`data.outputTokens`); input and cache
+  tokens exist only as a per-model total at `session.shutdown`, covering every round since the last
+  `session.start`/`session.resume`, so that total is split across the segment's rounds by each
+  round's share of its output tokens. A segment that never reaches a shutdown (the CLI killed, or
+  resumed again first) keeps its output counts but no input, so its rounds stay out of Cost. Model
+  ids as Copilot records them (`claude-haiku-4.5`) resolve to the dashed rate-table key
+  (`claude-haiku-4-5`). `--source copilot` / `source:copilot` filters it like any other agent.
+  Subagent delegation is not modelled: every Copilot round is `agent: "main"`.
+
+- **Visual Studio's GitHub Copilot Chat**, read from the MessagePack session files it writes under
+  `<project>/.vs/<solution>/copilot-chat/<hash>/sessions` — a different surface from Copilot CLI's
+  `events.jsonl`, both persisted as the same `copilot` source. A minimal, dependency-free
+  MessagePack decoder (`msgpack.ts`) reads exactly the type bytes real session files use; an
+  extension type it has never seen comes back tagged rather than misread. A round is one response
+  turn, grouped with its request by `CorrelationId`; a regenerated answer yields one round per
+  response, all under the same task. The format gives no per-turn timestamp, so only a session's
+  first round gets a real one, and none of it carries token usage. There is no per-user directory
+  listing every project Visual Studio has opened, so this source is never part of a global sweep or
+  `--all` — only naming a project by path (or running `probez collect` inside it) surfaces it.
+
 ## [0.7.3] - 2026-09-25
 
 ### Added

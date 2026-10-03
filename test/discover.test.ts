@@ -7,6 +7,7 @@ import { test } from 'node:test'
 import {
   discoverClaudeProjects,
   discoverCodexProjects,
+  discoverCopilotProjects,
   discoverCursorProjects,
   discoverProjects,
   matchProjects,
@@ -81,7 +82,12 @@ test('Claude and Cursor checkouts of the same path merge into one project', asyn
   mkdirSync(join(cursorDir, slug, 'agent-transcripts', 'sid'), { recursive: true })
   writeFileSync(join(cursorDir, slug, 'agent-transcripts', 'sid', 'sid.jsonl'), '{}\n')
 
-  const merged = await discoverProjects({ claudeDir, cursorDir, codexDir: join(root, 'codex') })
+  const merged = await discoverProjects({
+    claudeDir,
+    cursorDir,
+    codexDir: join(root, 'codex'),
+    copilotDir: join(root, 'copilot'),
+  })
   assert.equal(merged.length, 1)
   assert.equal(merged[0]!.path, project)
   assert.equal(merged[0]!.path_inferred, false)
@@ -124,7 +130,13 @@ test('--source cursor skips Claude projects', async () => {
   mkdirSync(join(claudeDir, 'encoded'), { recursive: true })
   writeFileSync(join(claudeDir, 'encoded', 'sess.jsonl'), '{}\n')
   const cursorDir = join(root, 'none')
-  const found = await discoverProjects({ claudeDir, cursorDir, codexDir: join(root, 'codex'), source: 'cursor' })
+  const found = await discoverProjects({
+    claudeDir,
+    cursorDir,
+    codexDir: join(root, 'codex'),
+    copilotDir: join(root, 'copilot'),
+    source: 'cursor',
+  })
   assert.equal(found.length, 0)
 })
 
@@ -212,6 +224,7 @@ test('Claude and Codex checkouts of the same path merge into one project', async
     claudeDir,
     cursorDir: join(root, 'none-cursor'),
     codexDir: join(root, 'codex'),
+    copilotDir: join(root, 'none-copilot'),
   })
   assert.equal(merged.length, 1)
   assert.equal(merged[0]!.path, project)
@@ -228,7 +241,72 @@ test('--source codex skips Claude projects', async () => {
     claudeDir,
     cursorDir: join(root, 'none'),
     codexDir: join(root, 'none-codex'),
+    copilotDir: join(root, 'none-copilot'),
     source: 'codex',
+  })
+  assert.equal(found.length, 0)
+})
+
+test('Copilot CLI discovery reads workspace.yaml and groups sessions by cwd', async () => {
+  const root = workspace()
+  const project = join(root, 'work')
+  mkdirSync(project, { recursive: true })
+  const copilotDir = join(root, 'copilot')
+
+  const sessionA = join(copilotDir, 'aaaa1111-0000-0000-0000-000000000000')
+  mkdirSync(sessionA, { recursive: true })
+  writeFileSync(join(sessionA, 'workspace.yaml'), `id: aaaa1111\ncwd: ${project}\nname: session a\n`)
+  writeFileSync(join(sessionA, 'events.jsonl'), '{}\n')
+
+  const sessionB = join(copilotDir, 'bbbb2222-0000-0000-0000-000000000000')
+  mkdirSync(sessionB, { recursive: true })
+  writeFileSync(join(sessionB, 'workspace.yaml'), `id: bbbb2222\ncwd: ${project}\nname: session b\n`)
+  writeFileSync(join(sessionB, 'events.jsonl'), '{}\n')
+
+  // No workspace.yaml at all: cannot be placed, and is skipped rather than guessed at.
+  const orphan = join(copilotDir, 'cccc3333-0000-0000-0000-000000000000')
+  mkdirSync(orphan, { recursive: true })
+  writeFileSync(join(orphan, 'events.jsonl'), '{}\n')
+
+  const projects = await discoverCopilotProjects(copilotDir)
+  assert.equal(projects.length, 1)
+  assert.equal(projects[0]!.path, project)
+  assert.deepEqual(projects[0]!.sources, ['copilot'])
+  assert.equal(projects[0]!.sessions.length, 2)
+  assert.ok(projects[0]!.sessions.every((s) => s.source === 'copilot'))
+  assert.deepEqual(
+    projects[0]!.sessions.map((s) => s.id).sort(),
+    ['aaaa1111-0000-0000-0000-000000000000', 'bbbb2222-0000-0000-0000-000000000000'],
+  )
+})
+
+test('a quoted workspace.yaml cwd has its outer quotes stripped', async () => {
+  const root = workspace()
+  const project = join(root, 'quoted work')
+  mkdirSync(project, { recursive: true })
+  const copilotDir = join(root, 'copilot')
+
+  const session = join(copilotDir, 'dddd4444-0000-0000-0000-000000000000')
+  mkdirSync(session, { recursive: true })
+  writeFileSync(join(session, 'workspace.yaml'), `id: dddd4444\ncwd: "${project}"\nname: session\n`)
+  writeFileSync(join(session, 'events.jsonl'), '{}\n')
+
+  const projects = await discoverCopilotProjects(copilotDir)
+  assert.equal(projects.length, 1)
+  assert.equal(projects[0]!.path, project)
+})
+
+test('--source copilot skips Claude projects', async () => {
+  const root = workspace()
+  const claudeDir = join(root, 'claude')
+  mkdirSync(join(claudeDir, 'encoded'), { recursive: true })
+  writeFileSync(join(claudeDir, 'encoded', 'sess.jsonl'), '{}\n')
+  const found = await discoverProjects({
+    claudeDir,
+    cursorDir: join(root, 'none'),
+    codexDir: join(root, 'none-codex'),
+    copilotDir: join(root, 'none-copilot'),
+    source: 'copilot',
   })
   assert.equal(found.length, 0)
 })

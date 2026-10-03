@@ -113,7 +113,7 @@ const INFRA = new Set([
 const MULTIPLEXERS = new Set([
   'git', 'gh', 'jj',
   'npm', 'pnpm', 'yarn', 'npx', 'bun', 'deno',
-  'cargo', 'go', 'make',
+  'cargo', 'go', 'make', 'dotnet',
   'brew', 'pip', 'pip3', 'uv', 'poetry',
   ...INFRA,
 ])
@@ -122,7 +122,7 @@ const MULTIPLEXERS = new Set([
 const MULTIPLEXER_KIND: Record<string, CommandKind> = {
   git: 'vcs', gh: 'vcs', jj: 'vcs',
   npm: 'build', pnpm: 'build', yarn: 'build', npx: 'build', bun: 'build', deno: 'build',
-  cargo: 'build', go: 'build', make: 'build',
+  cargo: 'build', go: 'build', make: 'build', dotnet: 'build',
   brew: 'deps', pip: 'deps', pip3: 'deps', uv: 'deps', poetry: 'deps',
 }
 
@@ -179,6 +179,11 @@ const KIND_BY_NAME: Record<string, CommandKind> = {
   grep: 'search', egrep: 'search', fgrep: 'search', rg: 'search', ag: 'search', ack: 'search',
   find: 'search', fd: 'search', ls: 'search', tree: 'search', which: 'search', locate: 'search',
   'git grep': 'search',
+  // PowerShell's own names for the same operations, cased as the cmdlets themselves are — this
+  // reader is exact-match throughout, so `new-item` or `NEW-ITEM` would not hit these rows either,
+  // the same limit every other name here already has.
+  'Get-ChildItem': 'search', gci: 'search', dir: 'search', 'Select-String': 'search', sls: 'search',
+  'Get-Command': 'search', gcm: 'search',
 
   // graph: code-query tools, which answer about the code rather than about the files. Only names
   // general enough to mean the same thing on anyone's machine belong here; a repository's own
@@ -191,11 +196,20 @@ const KIND_BY_NAME: Record<string, CommandKind> = {
   xxd: 'read', gzcat: 'read', zcat: 'read', column: 'read', sort: 'read', uniq: 'read',
   awk: 'read', cut: 'read', tr: 'read', base64: 'read', sqlite3: 'read', open: 'read',
   comm: 'read', paste: 'read',
+  'Get-Content': 'read', gc: 'read', type: 'read', 'Get-Item': 'read', gi: 'read',
+  'Test-Path': 'read',
 
   // edit
   mv: 'edit', cp: 'edit', rm: 'edit', rmdir: 'edit', mkdir: 'edit', touch: 'edit', chmod: 'edit',
   chown: 'edit', ln: 'edit', tee: 'edit', patch: 'edit', truncate: 'edit', tar: 'edit',
   unzip: 'edit', zip: 'edit', gzip: 'edit', gunzip: 'edit',
+  'New-Item': 'edit', ni: 'edit', 'Remove-Item': 'edit', ri: 'edit', 'Copy-Item': 'edit',
+  cpi: 'edit', 'Move-Item': 'edit', mi: 'edit', 'Rename-Item': 'edit', rni: 'edit',
+  // Not `sc`: Windows already has an `sc.exe` (service control) with the same short name and a
+  // completely different meaning, and current PowerShell dropped the `Set-Content` alias for
+  // exactly that clash. The full cmdlet name is unambiguous; the two-letter alias is not.
+  'Set-Content': 'edit', 'Add-Content': 'edit', ac: 'edit', 'Out-File': 'edit',
+  'Compress-Archive': 'edit', 'Expand-Archive': 'edit',
 
   // vcs: the multiplexer default covers the rest
   'git commit': 'vcs', 'git push': 'vcs',
@@ -204,6 +218,7 @@ const KIND_BY_NAME: Record<string, CommandKind> = {
   pytest: 'test', jest: 'test', vitest: 'test', mocha: 'test', tap: 'test', ava: 'test',
   playwright: 'test', cypress: 'test', 'go test': 'test', 'cargo test': 'test', 'npm test': 'test',
   'pnpm test': 'test', 'yarn test': 'test', 'bun test': 'test', 'deno test': 'test',
+  'dotnet test': 'test',
 
   // build
   tsc: 'build', esbuild: 'build', webpack: 'build', rollup: 'build', vite: 'build', swc: 'build',
@@ -212,12 +227,15 @@ const KIND_BY_NAME: Record<string, CommandKind> = {
   staticcheck: 'build', deadcode: 'build', 'golangci-lint': 'build',
   'go build': 'build', 'go vet': 'build', 'cargo build': 'build', 'cargo clippy': 'build',
   'go generate': 'build',
+  'dotnet build': 'build', 'dotnet publish': 'build', 'dotnet clean': 'build',
+  'dotnet pack': 'build', 'dotnet format': 'build',
 
   // deps
   'npm install': 'deps', 'npm ci': 'deps', 'npm add': 'deps', 'pnpm install': 'deps',
   'pnpm add': 'deps', 'yarn install': 'deps', 'yarn add': 'deps', 'bun install': 'deps',
   'go install': 'deps', 'go get': 'deps', 'go mod': 'deps', 'cargo add': 'deps',
   'pip install': 'deps', 'pip3 install': 'deps', 'brew install': 'deps',
+  'dotnet restore': 'deps', 'dotnet add': 'deps',
 
   // infra: the multiplexers in INFRA cover the rest, and `infraKind` splits them by subcommand
   kubectx: 'infra', kubens: 'infra', k9s: 'infra', colima: 'infra',
@@ -229,18 +247,23 @@ const KIND_BY_NAME: Record<string, CommandKind> = {
   node: 'run', python: 'run', python3: 'run', ruby: 'run', bash: 'run', sh: 'run', zsh: 'run',
   osascript: 'run', claude: 'run', 'go run': 'run', 'cargo run': 'run',
   'npm start': 'run', 'pnpm start': 'run', 'npm run': 'build', 'pnpm run': 'build',
+  'dotnet run': 'run', 'dotnet watch': 'run',
 
   // net
   curl: 'net', wget: 'net', nc: 'net', ping: 'net', dig: 'net', ssh: 'net', scp: 'net',
   rsync: 'net', http: 'net',
+  'Invoke-WebRequest': 'net', iwr: 'net', 'Invoke-RestMethod': 'net', irm: 'net',
+  'Test-Connection': 'net',
 
   // proc: looking at, or acting on, what is running on this machine
   ps: 'proc', kill: 'proc', pkill: 'proc', pgrep: 'proc', killall: 'proc', lsof: 'proc',
-  top: 'proc',
+  top: 'proc', 'Get-Process': 'proc', 'Stop-Process': 'proc', taskkill: 'proc', tasklist: 'proc',
 
   // nav
   cd: 'nav', pushd: 'nav', popd: 'nav', pwd: 'nav', export: 'nav', source: 'nav', '.': 'nav',
   set: 'nav', unset: 'nav', umask: 'nav', alias: 'nav', mktemp: 'nav',
+  'Set-Location': 'nav', sl: 'nav', 'Push-Location': 'nav', 'Pop-Location': 'nav',
+  'Get-Location': 'nav',
 
   // shell. `sleep` and its relatives sit here rather than under `proc`: waiting is not work on the
   // machine, it is the pause between two calls that are. They were the largest single row in a
@@ -250,6 +273,8 @@ const KIND_BY_NAME: Record<string, CommandKind> = {
   echo: 'shell', printf: 'shell', read: 'shell', true: 'shell', false: 'shell', ':': 'shell',
   eval: 'shell', seq: 'shell', date: 'shell', yes: 'shell', exit: 'shell', shift: 'shell',
   sleep: 'shell', jobs: 'shell', wait: 'shell', trap: 'shell',
+  'Write-Host': 'shell', 'Write-Output': 'shell', 'Write-Error': 'shell', 'Write-Warning': 'shell',
+  'Get-Date': 'shell', 'Start-Sleep': 'shell',
 }
 
 /**
@@ -429,6 +454,15 @@ function nameSegment(segment: string): Command | null {
     if (first === 'timeout') {
       // `timeout 30 node x.js`: the duration is not a command either.
       tokens = tokens.slice(tokens[1] !== undefined && !isFlag(tokens[1]) ? 2 : 1)
+      continue
+    }
+    // `cmd /c mkdir foo` is a wrapper the same way `bash script.sh` is: what runs is `mkdir`, not
+    // `cmd`. Not folded into the `SHELLS` check above — `isFlag` only knows the POSIX `-` spelling,
+    // and cmd.exe's own flag is `/c` or `/k`, so the generic check would read `/c` as the command
+    // itself (via the `raw.split('/').pop()` rule below, that becomes a bare `c`) rather than as
+    // the flag it is.
+    if ((first === 'cmd' || first === 'cmd.exe') && (tokens[1] === '/c' || tokens[1] === '/k' || tokens[1] === '/C' || tokens[1] === '/K')) {
+      tokens = tokens.slice(2)
       continue
     }
     break
@@ -704,6 +738,11 @@ function joinShell(parts: string[]): string {
  */
 const SHELL_TOOLS = new Set([
   'Bash', 'Shell', 'bash', 'shell', 'shell_command', 'exec_command', 'local_shell',
+  // GitHub Copilot CLI's name for the tool on Windows: a real session's `powershell` calls pass a
+  // `command` argument exactly like any other shell tool here. Missing this sent every `ls`,
+  // `npm test` and `git status` it ran straight to `unclassified/unknown`. Its non-Windows name,
+  // if different, is not confirmed from a real session and so is not guessed at here.
+  'powershell',
 ])
 
 export function isShellTool(name: string): boolean {
