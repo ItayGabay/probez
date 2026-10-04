@@ -9,7 +9,45 @@ import { ago, clip, count, duration, money, percent, shortId, when } from '../fo
 import { go, href, linkProps } from '../router'
 import type { Entity } from '../router'
 import { useData } from '../useData'
-import type { ReactElement } from 'react'
+import { useEffect } from 'react'
+import type { KeyboardEvent, ReactElement } from 'react'
+
+/**
+ * Queries worth running before you know the language, each one a link. Reading an example and
+ * retyping it is a step a search page has no reason to make you take.
+ */
+const EXAMPLES: Array<[query: string, says: string]> = [
+  ['is:error since:7d', 'rounds with a failed tool call this week'],
+  ['sort:cost since:7d', 'the most expensive rounds this week'],
+  ['category:reconstruction cost:>0.50 -tool:Read', 'costly re-reading that was not a file read'],
+  ['(tool:Edit OR tool:Write) added:>200 in:tasks', 'tasks that wrote a lot of code'],
+]
+
+/**
+ * A table row that goes somewhere, reachable by keyboard as well as by mouse.
+ *
+ * The row is the target rather than a link inside one cell, so the whole width stays clickable;
+ * that leaves it to the row to take focus and answer Enter, or a keyboard has no way into a result.
+ */
+function rowTo(to: string | null): {
+  className?: string
+  tabIndex?: number
+  onClick?: () => void
+  onKeyDown?: (event: KeyboardEvent<HTMLTableRowElement>) => void
+} {
+  if (to === null) return {}
+  return {
+    className: 'row',
+    tabIndex: 0,
+    onClick: () => go(to),
+    onKeyDown: (event) => {
+      if (event.key === 'Enter' && event.target === event.currentTarget) {
+        event.preventDefault()
+        go(to)
+      }
+    },
+  }
+}
 
 /**
  * What a query came to.
@@ -26,21 +64,40 @@ export function Search({
   q,
   entity,
   slug,
-  from,
 }: {
   q: string
   /** What to count, when the URL says so. Null leaves it to the query's own `in:`. */
   entity: Entity | null
   slug: string | null
-  /** The sentence this query was read from, when one was. A caption; the query is what ran. */
-  from: string | null
 }): ReactElement {
   const { data, error, loading } = useData(
     // `entity` is only sent when the URL named one. Sending a default would override an `in:` the
-    // query itself carries, which is how a compiled query loses its own grouping.
+    // query itself carries, which is how a linked query would lose its own grouping.
     () => api.search(q, { slug, ...(entity === null ? {} : { entity }), limit: 200 }),
     [q, entity, slug],
   )
+
+  // The query names the tab and the history entry, so a list of searches in either is readable.
+  useEffect(() => {
+    const was = document.title
+    document.title = q.trim() === '' ? 'Search · probez' : `${q.trim()} · probez`
+    return () => {
+      document.title = was
+    }
+  }, [q])
+
+  const status =
+    q.trim() === ''
+      ? ''
+      : data === null
+        ? error === null
+          ? 'Searching'
+          : ''
+        : loading
+          ? 'Searching'
+          : data.totals.rounds === 0
+            ? 'Nothing matched'
+            : `${count(data.found)} ${data.entity.replace(/s$/, '')}${data.found === 1 ? '' : 's'} matched`
 
   const crumbs =
     slug === null
@@ -51,8 +108,12 @@ export function Search({
     <>
       <Chrome crumbs={crumbs} search={{ slug, initial: q, entity, mode: 'search' }} />
       <main className="page">
+        {/* The page swaps under a screen reader without saying so; this is what says so. */}
+        <p className="sr-only" role="status" aria-live="polite">
+          {status}
+        </p>
         {q.trim() === '' ? (
-          <Empty />
+          <Empty slug={slug} />
         ) : error !== null && data === null ? (
           <Problem message={error} />
         ) : data === null ? (
@@ -68,15 +129,23 @@ export function Search({
               )}
             </div>
 
-            {from === null ? null : <ReadFrom from={from} q={q} slug={slug} />}
             <Diagnostics data={data} />
 
             {data.totals.rounds === 0 ? (
-              <p className="note">
-                Nothing matched. <code className="mono">probez --help</code> lists every field a
-                query can name; a word on its own searches the prompts, the prose, the commands and
-                the paths.
-              </p>
+              <div className="note">
+                <p>
+                  Nothing matched. A word on its own matches a word or the start of one, so{' '}
+                  <code className="mono">tok</code> finds <code className="mono">tokens</code> but{' '}
+                  <code className="mono">oken</code> does not. Click into the search box with it
+                  empty to see every field a query can name, or{' '}
+                  <code className="mono">probez --help</code> for the full list.
+                </p>
+                {slug === null ? null : (
+                  <p>
+                    <a {...linkProps(href.search(q, { entity }))}>Try every project instead</a>
+                  </p>
+                )}
+              </div>
             ) : (
               <>
                 <Found data={data} />
@@ -94,38 +163,26 @@ export function Search({
   )
 }
 
-function Empty(): ReactElement {
+function Empty({ slug }: { slug: string | null }): ReactElement {
   return (
     <div className="note" style={{ maxWidth: '60ch' }}>
       <p>
         One query over everything collected. A word on its own searches the prompts, the prose, the
         commands and the paths; <code className="mono">key:value</code> filters;{' '}
-        <code className="mono">-</code> negates; one after another means and.
+        <code className="mono">-</code> negates; one after another means and;{' '}
+        <code className="mono">OR</code> and brackets regroup. Press <kbd className="find-key">/</kbd>{' '}
+        to start typing, or try one of these:
       </p>
-      <p className="mono" style={{ color: 'var(--ink-2)' }}>
-        category:reconstruction cost:&gt;0.50 -tool:Read since:7d
-      </p>
+      <ul className="find-try">
+        {EXAMPLES.map(([query, says]) => (
+          <li key={query}>
+            <a {...linkProps(href.search(query, { slug }))} title={says}>
+              {query}
+            </a>
+          </li>
+        ))}
+      </ul>
     </div>
-  )
-}
-
-/**
- * The sentence a query was read from.
- *
- * A caption over the query, not a replacement for it. What ran is the query above — visible,
- * editable in the bar, and in the URL — so this result is re-runnable by anyone whether or not they
- * have a reader configured, and every number under it stays derived from the rounds. Which is the
- * whole reason the model is asked for a query rather than for an answer.
- */
-function ReadFrom({ from, q, slug }: { from: string; q: string; slug: string | null }): ReactElement {
-  return (
-    <p className="read-from">
-      <span className="read-mark" aria-hidden>
-        ?
-      </span>
-      Read from “{from}”. The query above is what ran, and you can edit it.{' '}
-      <a {...linkProps(href.search(q, { slug }))}>Drop the question</a>
-    </p>
   )
 }
 
@@ -207,14 +264,26 @@ function Tabs({
 }): ReactElement {
   const shown: Entity[] = ['rounds', 'tasks', 'sessions', 'questions', 'trails']
   const all = data.totals.projects > 1 || entity === 'projects' ? [...shown, 'projects' as Entity] : shown
+  // Arrow keys move between tabs, as they do in any tablist; only the selected tab is in the Tab
+  // order, so getting past the row takes one keystroke rather than six.
+  const onKeyDown = (event: KeyboardEvent<HTMLDivElement>): void => {
+    const step = event.key === 'ArrowRight' ? 1 : event.key === 'ArrowLeft' ? -1 : 0
+    if (step === 0) return
+    event.preventDefault()
+    const next = all[(all.indexOf(entity) + step + all.length) % all.length]!
+    const tabs = event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="tab"]')
+    tabs[all.indexOf(next)]?.focus()
+    go(href.search(q, { entity: next, slug }))
+  }
   return (
-    <div className="toggle find-tabs" role="tablist">
+    <div className="toggle find-tabs" role="tablist" aria-label="Count matches as" onKeyDown={onKeyDown}>
       {all.map((one) => (
         <button
           key={one}
+          type="button"
           role="tab"
-          aria-pressed={one === entity}
           aria-selected={one === entity}
+          tabIndex={one === entity ? 0 : -1}
           onClick={() => go(href.search(q, { entity: one, slug }))}
         >
           {ENTITY_LABEL[one]}
@@ -283,11 +352,7 @@ function Rounds({ hits, many, q }: { hits: SearchHit[]; many: boolean; q: string
         {hits.map((hit, at) => {
           const to = toTask(hit, q)
           return (
-            <tr
-              key={at}
-              className={to === null ? undefined : 'row'}
-              onClick={to === null ? undefined : () => go(to)}
-            >
+            <tr key={at} {...rowTo(to)}>
               <Project hit={hit} many={many} />
               <td className="mono">
                 {shortId(hit.session ?? '')}#{hit.task}.{hit.round}
@@ -375,7 +440,7 @@ function Sessions({ hits, many }: { hits: SearchHit[]; many: boolean }): ReactEl
               ? null
               : href.session(hit.slug, hit.session)
           return (
-            <tr key={at} className={to === null ? undefined : 'row'} onClick={to === null ? undefined : () => go(to)}>
+            <tr key={at} {...rowTo(to)}>
               <Project hit={hit} many={many} />
               <td className="mono">
                 {shortId(hit.session ?? '')}
@@ -416,7 +481,7 @@ function Tasks({ hits, many, q }: { hits: SearchHit[]; many: boolean; q: string 
         {hits.map((hit, at) => {
           const to = toTask(hit, q)
           return (
-            <tr key={at} className={to === null ? undefined : 'row'} onClick={to === null ? undefined : () => go(to)}>
+            <tr key={at} {...rowTo(to)}>
               <Project hit={hit} many={many} />
               <td className="mono">
                 {shortId(hit.session ?? '')}#{hit.task}
@@ -449,11 +514,7 @@ function Projects({ hits }: { hits: SearchHit[] }): ReactElement {
       </thead>
       <tbody>
         {hits.map((hit, at) => (
-          <tr
-            key={at}
-            className={hit.slug === undefined ? undefined : 'row'}
-            onClick={hit.slug === undefined ? undefined : () => go(href.project(hit.slug!))}
-          >
+          <tr key={at} {...rowTo(hit.slug === undefined ? null : href.project(hit.slug))}>
             <td>{hit.project}</td>
             <Matched hit={hit} />
             <td className="r">{count(hit.sessions ?? 0)}</td>
@@ -486,7 +547,7 @@ function Questions({ hits, many }: { hits: SearchHit[]; many: boolean }): ReactE
               ? null
               : href.task(hit.slug, hit.session, hit.task, undefined, null, hit.at ?? null)
           return (
-            <tr key={at} className={to === null ? undefined : 'row'} onClick={to === null ? undefined : () => go(to)}>
+            <tr key={at} {...rowTo(to)}>
               <Project hit={hit} many={many} />
               <td className="mono">
                 {shortId(hit.session ?? '')}#{hit.ref}
@@ -524,7 +585,7 @@ function Trails({ hits, many }: { hits: SearchHit[]; many: boolean }): ReactElem
               ? null
               : href.task(hit.slug, hit.session, hit.task, undefined, hit.ref ?? null)
           return (
-            <tr key={at} className={to === null ? undefined : 'row'} onClick={to === null ? undefined : () => go(to)}>
+            <tr key={at} {...rowTo(to)}>
               <Project hit={hit} many={many} />
               <td className="mono">
                 {shortId(hit.session ?? '')}#{hit.ref}

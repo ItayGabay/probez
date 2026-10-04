@@ -34,14 +34,10 @@ These are choices, not omissions:
   sent while running nothing, so the answer can be had from a chat already open without probez
   starting anything at all.
 
-  Two things use it, and both send something named and bounded. `probez explain` sends one
-  question's calls and gets a sentence back. `probez find --ask` sends the query language's field
-  table and a sample of the names this store holds, with the person's question, and gets **a query**
-  back — which probez parses, refuses if it does not read, shows, and only then answers by the same
-  deterministic path a typed query takes. That distinction is the whole of why the second one is
-  allowed: a model chooses which rounds to look at, and never what any of them came to. Every
-  number stays derived from the rounds. See CONTRIBUTING § rule 2, which names both callers and
-  says what would have to be argued to add a third.
+  One thing uses it, and it sends something named and bounded: `probez explain` sends one
+  question's calls and gets a sentence back, which sits beside the measured kind and never replaces
+  it. Every number stays derived from the rounds. See CONTRIBUTING § rule 2, which names the caller
+  and says what would have to be argued to add a second.
 - **Claude Code, Cursor, Codex CLI, GitHub Copilot CLI, and Visual Studio's GitHub Copilot Chat.**
   Other agents follow once the round schema has proven itself against these formats. Cursor
   transcripts do not record token usage or model names; those rounds are collected and classified,
@@ -623,15 +619,6 @@ because both read a run of calls across a whole project and neither can be answe
 that matched. It is derived data in the strict sense: missing, stale, from an unknown version and
 half-written all mean the same thing, which is read the rounds, and the result says how many
 projects had to.
-
-**And a way in that does not require learning it.** `--ask`, and *ask* mode in the view, hand your
-question to the reader and get back **a query** — parsed by probez, refused outright if it does not
-read, shown, and only then answered by the deterministic path. A model chooses which rounds to look
-at and never what any of them came to, which is the whole of why this is allowed under the
-no-outbound-network rule and why a result read from a question is reproducible by someone with no
-reader configured. This is the second thing in probez that starts the reader; CONTRIBUTING § rule 2
-names both callers and what would have to be argued to add a third.
-
 ## Agent source as a dimension
 
 The project boundary is the checkout. Claude Code, Cursor, Codex, Copilot CLI and Visual Studio

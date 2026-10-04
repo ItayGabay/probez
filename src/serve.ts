@@ -11,7 +11,6 @@ import {
   BadRequest,
   clearStore,
   commandsPayload,
-  compileSentenceFor,
   explainOne,
   exportProject,
   facetsPayload,
@@ -270,17 +269,6 @@ function isClearPath(parts: string[]): boolean {
   return parts.length === 1 && parts[0] === 'clear'
 }
 
-/**
- * Reading a sentence as a query. POST only, because it starts a program.
- *
- * The second thing in probez that spawns anything, after `explain`, and it is a POST for the same
- * reason: a URL that runs something when it is merely visited is a URL that can be put in an
- * `<img>` tag on any page you happen to open. See CONTRIBUTING § rule 2.
- */
-function isCompilePath(parts: string[]): boolean {
-  return parts.length === 1 && parts[0] === 'compile'
-}
-
 /** Taking in an exported project. POST only: it writes. */
 function isImportPath(parts: string[]): boolean {
   return parts.length === 1 && parts[0] === 'import'
@@ -293,7 +281,6 @@ function isWritePath(parts: string[]): boolean {
     isPricingPath(parts) ||
     isReaderPath(parts) ||
     isCommandsPath(parts) ||
-    isCompilePath(parts) ||
     isClearPath(parts) ||
     isImportPath(parts)
   )
@@ -374,7 +361,6 @@ async function serveApi(
   const method = req.method ?? 'GET'
   // /api/commands                                             GET, POST
   // /api/clear                                                POST
-  // /api/compile                                              POST
   // /api/search?q=&project=&in=&limit=
   // /api/facets?key=&project=
   // /api/projects?source=
@@ -447,19 +433,6 @@ async function serveApi(
       return
     }
     sendJson(res, 200, await clearStore(dataDir, body))
-    return
-  }
-
-  if (group === 'compile' && slug === undefined) {
-    // Reachable only as POST; the method check upstream has already refused a GET here.
-    let body: unknown
-    try {
-      body = await readJsonBody(req)
-    } catch (error) {
-      sendJson(res, 400, { error: error instanceof Error ? error.message : 'unreadable body' })
-      return
-    }
-    sendJson(res, 200, await compileSentenceFor(dataDir, body))
     return
   }
 
@@ -708,7 +681,6 @@ export async function startServer(options: ServeOptions): Promise<Serving> {
       isApi &&
       (isProjectWritePath(parts) ||
         isImportPath(parts) ||
-        isCompilePath(parts) ||
         isClearPath(parts))
     ) {
       res.writeHead(405, { allow: 'POST', 'content-length': 0 })

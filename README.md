@@ -85,12 +85,6 @@ matched with the size of the whole session beside them.
   <img src="docs/view-search.png" alt="probez view: a query, its share of the project, and the sessions it is concentrated in" width="900">
 </p>
 
-The box has two modes, shown at its head: **search**, which takes a query, and **ask**, which hands
-what you typed to your own LLM as a question and puts the query it wrote into the bar to be checked
-and edited. Two controls rather than one that changes meaning, because one of them spends tokens on
-somebody else's program. The result is an ordinary search URL either way, so it is shareable and
-re-runnable by anyone with no LLM configured.
-
 Clicking a round opens its task with the query still in the URL, so the trace arrives with the
 rounds that matched lit and the rest of the task drawn around them — the point being *where in the
 task* the matches fall, which a filtered list cannot show. The bar starts scoped to whatever page
@@ -173,8 +167,8 @@ matches past a dated suffix, so a rate against `claude-haiku-4-5` also covers th
 `claude-haiku-4-5-20251001` rounds Claude Code actually records — and no further than that, so a
 model nothing has priced is reported as unpriced instead of billed at a lookalike's rate.
 Under them sits the **reader**: the command *explain* runs, and the only program probez starts at
-your direction. It is argv and not a shell line, it runs only when you press explain on one question
-or *ask* on a search, and leaving it blank leaves probez with nothing it could run. One other program
+your direction. It is argv and not a shell line, it runs only when you press explain on one question,
+and leaving it blank leaves probez with nothing it could run. One other program
 probez starts, and it is not one you configure: `git log`, during collection, in a project whose
 reflog cannot say what a task began from — read-only and local, described under
 [Privacy](#privacy).
@@ -247,7 +241,7 @@ project                a directory an agent was started in    its name, or its p
 | `probez trails` · `trail <id>` | Runs of calls that followed one another into the repository |
 | `probez questions` · `question <id>` | What the agent needed to know, and what finding out cost |
 | `probez explain <id>` | Ask your own LLM what one question was, in a sentence |
-| `probez find "<query>"` | One query over everything collected, or `--ask` a question |
+| `probez find "<query>"` | One query over everything collected |
 | `probez analyze` | Where the work went |
 | `probez view` | Open the profiler |
 | `probez collect` | Collect one project, or every project under a folder |
@@ -258,7 +252,7 @@ project                a directory an agent was started in    its name, or its p
 
 Lists take `--limit` and always say how many rows they withheld. `rounds` filters by `--session`,
 `--task`, `--tool`, `--command`, `--kind`, `--category`, `--target`, `--agent` and `--errors`, and
-`sessions` takes `--agent` too. `find` takes `--all`, `--in`, `--sort`, `--plan`, `--ask`, `--prompt` and `--again`.
+`sessions` takes `--agent` too. `find` takes `--all`, `--in`, `--sort` and `--plan`.
 `analyze` takes `--by`, `--split` and `--unclassified`. `trails` takes `--deep`, `--min-depth` and
 `--outcome`. `questions` takes `--kind` and `--min-calls`, and `explain` takes `--again` and `--prompt`.
 `clear` takes `--all`, `--before` and `--yes`, and `collect` takes `--since`.
@@ -512,45 +506,6 @@ $ probez find 'cost:> categoy:test' --plan
   sort      newest first
   limit     50
 ```
-
-**Or don't learn the language.** `--ask` hands your question to the LLM you already have and gets
-back a *query* — which probez parses, refuses outright if it does not read, prints, and only then
-answers the same way it answers one you typed:
-
-```console
-$ probez find --ask 'which sessions had the most failing shell commands' flowz-mcp
-
-  probez read "which sessions had the most failing shell commands" as
-
-    tool:Bash is:error in:sessions sort:errors
-
-  claude: "failing shell commands" reads as rounds whose Bash calls the harness reported
-  as failed, grouped by session and ranked by error count — the language can't tie the
-  error to the Bash call specifically, only to the round
-
-  Run the query above to answer this again without asking.
-
-  flowz-mcp  ~/Dev/workspace/flowz-mcp
-
-  6 rounds · $0.54 · 0.9% of rounds · 0.6% of cost · 5 sessions · 6 tool errors · 50% reconstruction
-
-  SESSION      ROUNDS     OF       COST     TIME  LAST
-  069d8593          2     31      $0.12    12.2s  20 days ago
-  0bfa7fe3          1    127      $0.21    26.5s  27 days ago
-  bfd594d9          1     73      $0.11     4.6s  26 days ago
-  be254122          1     21      $0.05     2.2s  26 days ago
-  0b2cc149          1     87      $0.04     8.2s  27 days ago
-
-  5 sessions
-```
-
-**A model chooses which rounds to look at, and never what any of them came to.** Every figure above
-is derived from the rounds by the same code that answers a typed query, so the result is re-runnable
-by someone with no LLM configured at all and comes out identical — and the query it wrote is one you
-can correct by hand. What gets sent is the field table, the values each field can take, and a sample
-of the names this store holds; nothing you typed to the agent and nothing any tool returned. It runs
-the command in `<data-dir>/reader.json`, the same one [`explain`](#explain-the-same-question-read-back-by-your-own-llm)
-uses, and `--prompt` prints exactly what would go while running nothing.
 
 `probez --help` lists every field a query can name, with what each one reads. The filters on
 `rounds` are the same language underneath — `--tool Bash` is `tool:Bash`, `--source cursor` is
