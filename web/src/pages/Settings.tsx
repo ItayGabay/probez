@@ -384,6 +384,20 @@ function Reader(): ReactElement {
         <button className="save" onClick={() => void save()} disabled={saving}>
           {saving ? 'Saving…' : 'Save reader'}
         </button>
+        {/* The command most people here already have, one click from typed. It fills the field
+            rather than saving, so what will run is still read before it is kept. */}
+        {command.trim() === '' ? (
+          <button
+            type="button"
+            className="ghost"
+            onClick={() => {
+              setSaved(null)
+              setCommand('claude -p')
+            }}
+          >
+            Use Claude Code (claude -p)
+          </button>
+        ) : null}
         {saved === null ? null : <span className="muted">{saved}</span>}
         {error === null ? null : <span className="bad">{error}</span>}
       </div>
