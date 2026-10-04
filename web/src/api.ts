@@ -860,15 +860,6 @@ export interface SearchPayload {
   scope_slug: string | null
 }
 
-export interface CompilePayload {
-  sentence: string
-  query: string
-  why: string
-  by: string
-  at: string
-  ran: boolean
-}
-
 export interface CommandsPayload {
   file: string
   commands: Record<string, string>
@@ -974,14 +965,6 @@ export const api = {
       scope,
       ...(options.before === undefined ? {} : { before: options.before }),
       apply: options.apply === true,
-    }),
-  // The one call in the view that turns a sentence into a query. A POST, because it starts the
-  // program in `reader.json` — and what comes back is a query, which probez then runs itself.
-  compile: (sentence: string, slug?: string | null, again = false) =>
-    post<CompilePayload>('/compile', {
-      sentence,
-      ...(slug === undefined || slug === null ? {} : { project: slug }),
-      again,
     }),
   // What a query can name, and what this store actually holds for it. Values come with their
   // counts, because `tool:` completing to the eleven tools a project has really called is a

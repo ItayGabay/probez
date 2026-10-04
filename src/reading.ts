@@ -146,12 +146,8 @@ const WRAPPERS = ['result', 'response', 'text', 'output', 'content', 'message']
  * A reader may print prose around its JSON, and one that was configured with its own `--output-format
  * json` prints the answer as a *string field* of a report about the run. Both are ordinary ways to
  * have a working setup, so both are read rather than refused.
- *
- * Exported for `asking.ts`, which reads a different answer out of the same kind of program and must
- * be forgiving of it in exactly the same ways. Two copies of this would be two sets of readers that
- * work.
  */
-export function* objectsIn(text: string, depth = 0): Generator<Record<string, unknown>> {
+function* objectsIn(text: string, depth = 0): Generator<Record<string, unknown>> {
   if (depth > 2) return
   for (let i = text.indexOf('{'); i !== -1; i = text.indexOf('{', i + 1)) {
     const body = objectAt(text, i)
@@ -177,9 +173,9 @@ export function* objectsIn(text: string, depth = 0): Generator<Record<string, un
  *
  * Cut on a word rather than on a character: a `why` that ends "systematically read through the
  * core implementation files to map the hi" reads as a bug in probez, and the ellipsis is what says
- * the sentence went on rather than that it broke off. Exported for `asking.ts`, beside `objectsIn`.
+ * the sentence went on rather than that it broke off.
  */
-export function trim(value: unknown, cap: number): string {
+function trim(value: unknown, cap: number): string {
   if (typeof value !== 'string') return ''
   const one = value.trim().replace(/\s+/g, ' ')
   if (one.length <= cap) return one

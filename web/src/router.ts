@@ -29,13 +29,6 @@ export type Route =
       /** What to count, when the URL says. Null leaves it to the query's own `in:`. */
       entity: Entity | null
       slug: string | null
-      /**
-       * The sentence this query was read from, when one was.
-       *
-       * Only ever a caption. The query is what ran and what a link carries, so a result compiled
-       * from a sentence is re-runnable by anyone, with or without a reader configured.
-       */
-      from: string | null
     }
   | { name: 'project'; slug: string; source: SourceChoice | null }
   | { name: 'session'; slug: string; session: string; source: SourceChoice | null }
@@ -115,13 +108,11 @@ export function parse(pathname: string, search: string): Route {
   if (parts.length === 1 && parts[0] === 'settings') return { name: 'settings' }
   if (parts.length === 1 && parts[0] === 'search') {
     const query = new URLSearchParams(search)
-    const from = query.get('from')
     return {
       name: 'search',
       q: query.get('q') ?? '',
       entity: asEntity(query.get('in')),
       slug: query.get('project'),
-      from: from === null || from === '' ? null : from,
     }
   }
 
@@ -162,12 +153,11 @@ export const href = {
   settings: () => '/settings',
   search: (
     q: string,
-    options: { entity?: Entity | null; slug?: string | null; from?: string | null } = {},
+    options: { entity?: Entity | null; slug?: string | null } = {},
   ) => {
     const query = new URLSearchParams({ q })
     if (options.entity !== undefined && options.entity !== null) query.set('in', options.entity)
     if (options.slug !== undefined && options.slug !== null) query.set('project', options.slug)
-    if (options.from !== undefined && options.from !== null) query.set('from', options.from)
     return `/search?${query.toString()}`
   },
   project: (slug: string, source?: string | null) => withSource(`/p/${slug}`, source),

@@ -71,6 +71,27 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html). It is pub
   before the context reading above existed, and Visual Studio Copilot Chat sessions collected
   before their log was read. `probez collect` does it; nothing needs re-running by hand. A Visual
   Studio chat only gains usage this way if its log still exists when the rebuild runs.
+- **The search box is easier to drive, and to learn.** Focusing it empty lists every field a query
+  can name. The first ↓ now lands on the first suggestion (it used to skip it), ↓ opens a closed
+  menu, Shift+Tab leaves the box instead of completing, and a key hint sits at the menu's foot. It
+  is a proper ARIA combobox, so a screen reader hears the highlighted suggestion and how many there
+  are. On the results page, rows take focus and open on Enter, the tabs move with ←/→, the empty
+  page offers example queries you can click, a search that finds nothing says why and offers every
+  project, and the browser tab is titled with the query.
+- **Trends open on 30 days rather than 7.** A week is often a handful of task days, too few to read
+  a trend from; 7 and 90 are still in the range picker.
+- **A reader on Windows can be an npm-installed command.** `claude`, `codex` and the like install
+  as `.cmd` shims, which Node will not start without a shell, so `claude -p` failed as "not on
+  PATH". probez now looks the name up across PATH and PATHEXT and starts the program the shim
+  names, still with no shell. Settings offers `claude -p` with one click.
+
+### Removed
+
+- **`probez find --ask` and *ask* mode in the search box**, with `POST /api/compile` behind it.
+  Turning a sentence into a query took a configured reader and a model round trip to save typing a
+  few `key:value` atoms, and was more friction than the language it stood in for. The field
+  completion in the box is the way in now. The reader stays, for `explain`. An `asked.json` left in
+  a data directory is no longer read and can be deleted.
 
 ## [0.7.3] - 2026-09-25
 

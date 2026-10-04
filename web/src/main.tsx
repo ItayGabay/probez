@@ -29,7 +29,6 @@ function App(): ReactElement {
           q={route.q}
           entity={route.entity}
           slug={route.slug}
-          from={route.from}
         />
       ) : route.name === 'project' ? (
         <Project key={route.slug} slug={route.slug} source={route.source} />

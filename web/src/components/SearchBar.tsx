@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import type { KeyboardEvent, ReactElement } from 'react'
 
 import { api } from '../api'
@@ -27,27 +27,6 @@ import type { Entity } from '../router'
  * a keystroke that can take a second, and a list that reorders under your hands while you are still
  * describing what you want is worse than one that waits to be asked.
  */
-/**
- * Query or question. Two ways of using one box, so the box says which one it is in.
- *
- * A mode rather than a second button beside the input: the two do different things to what you
- * typed, one of them spends tokens on somebody else's program, and a control that only appears
- * once there is text is a control you find by accident. Held in `localStorage` like the theme,
- * because the bar is re-mounted on every page and a mode that reset on every navigation would be
- * a mode nobody could stay in.
- */
-type Mode = 'query' | 'ask'
-
-const MODE_KEY = 'probez.find.mode'
-
-function heldMode(): Mode {
-  try {
-    return localStorage.getItem(MODE_KEY) === 'ask' ? 'ask' : 'query'
-  } catch {
-    return 'query'
-  }
-}
-
 export function SearchBar({
   slug,
   initial,
@@ -58,36 +37,20 @@ export function SearchBar({
   /** Page filter from `?source=`. The clear control drops this along with a typed query. */
   source?: string | null
 }): ReactElement {
-  const [mode, setMode] = useState<Mode>(heldMode)
   const [text, setText] = useState(initial ?? '')
   const [open, setOpen] = useState(false)
-  const [at, setAt] = useState(0)
+  /** The highlighted suggestion, or -1 while none has been moved to. */
+  const [at, setAt] = useState(-1)
   const [facets, setFacets] = useState<FacetPayload | null>(null)
-  /** Set while the reader is being asked, and to whatever it refused with. */
-  const [asking, setAsking] = useState(false)
-  const [refused, setRefused] = useState<string | null>(null)
   const input = useRef<HTMLInputElement>(null)
   const box = useRef<HTMLDivElement>(null)
+  const menuId = useId()
 
   // The query in the address bar is the query in the box: arriving at a result by link, or by the
-  // back button, has to leave the bar saying what produced what is on screen. Arriving at one is
-  // also arriving at a query, so the box goes back to reading as one.
+  // back button, has to leave the bar saying what produced what is on screen.
   useEffect(() => {
     setText(initial ?? '')
-    if (initial !== undefined && initial !== '') flip('query')
-    // `flip` is stable enough for this; the initial query is the real key.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initial])
-
-  const flip = (next: Mode): void => {
-    setMode(next)
-    try {
-      localStorage.setItem(MODE_KEY, next)
-    } catch {
-      // A browser with storage turned off still gets the mode, just not across pages.
-    }
-    setRefused(null)
-  }
 
   // `/` and ⌘K are the two shortcuts people already try. `/` only outside a field, or it would
   // steal the key from anything else on the page that takes text.
@@ -143,14 +106,13 @@ export function SearchBar({
     }
   }, [key, slug])
 
-  const options =
-    mode === 'ask'
-      ? []
-      : suggest(facets, key, typed).filter(
-          // Already typed in full: offering the same atom under the box is noise, not help.
-          (option) => option.insert.toLowerCase() !== word.text.toLowerCase(),
-        )
-  useEffect(() => setAt(0), [word.text])
+  const options = suggest(facets, key, typed, text.trim() === '').filter(
+    // Already typed in full: offering the same atom under the box is noise, not help.
+    (option) => option.insert.toLowerCase() !== word.text.toLowerCase(),
+  )
+  useEffect(() => setAt(-1), [word.text])
+  const shown = open && options.length > 0
+  const optionId = (index: number): string => `${menuId}-${index}`
 
   const put = (value: string): void => {
     const next = text.slice(0, word.from) + value + text.slice(word.to)
@@ -167,7 +129,6 @@ export function SearchBar({
     const asked = value.trim()
     if (asked === '') return
     setOpen(false)
-    setRefused(null)
     input.current?.blur()
     go(href.search(asked, { slug }))
   }
@@ -181,7 +142,6 @@ export function SearchBar({
   const clear = (): void => {
     setText('')
     setOpen(false)
-    setRefused(null)
     const onSearch = (initial ?? '') !== ''
     const pinned = source !== undefined && source !== null && source !== ''
     if (onSearch || pinned) {
@@ -191,38 +151,22 @@ export function SearchBar({
     input.current?.focus()
   }
 
-  /**
-   * Hand the sentence to the reader, and go to what it read.
-   *
-   * What comes back is a *query*, so what this navigates to is an ordinary result URL that anyone
-   * can re-run without a reader. The sentence travels beside it as a caption. Nothing the model
-   * says reaches a number — every figure on the page is still derived from the rounds.
-   */
-  const ask = (value: string): void => {
-    const question = value.trim()
-    if (question === '' || asking) return
-    setOpen(false)
-    setRefused(null)
-    setAsking(true)
-    api
-      .compile(question, slug)
-      .then((read) => {
-        setAsking(false)
-        go(href.search(read.query, { slug, from: read.sentence }))
-      })
-      .catch((problem: Error) => {
-        setAsking(false)
-        setRefused(problem.message)
-      })
-  }
-
   const onKeyDown = (event: KeyboardEvent<HTMLInputElement>): void => {
     if (event.key === 'Escape') {
       if (open) setOpen(false)
       else input.current?.blur()
       return
     }
+    // A closed menu opens on the key that would move into it, rather than needing another keystroke.
+    if (!open && event.key === 'ArrowDown' && options.length > 0) {
+      event.preventDefault()
+      setOpen(true)
+      setAt(0)
+      return
+    }
     if (open && options.length > 0) {
+      // Nothing is lit until an arrow is pressed, so the first press lands on the first suggestion
+      // rather than stepping past it.
       if (event.key === 'ArrowDown') {
         event.preventDefault()
         setAt((was) => (was + 1) % options.length)
@@ -230,72 +174,48 @@ export function SearchBar({
       }
       if (event.key === 'ArrowUp') {
         event.preventDefault()
-        setAt((was) => (was - 1 + options.length) % options.length)
+        setAt((was) => (was <= 0 ? options.length - 1 : was - 1))
         return
       }
-      if (event.key === 'Tab') {
+      // Tab completes the lit suggestion, or the first when none has been moved to. Shift+Tab is
+      // left alone so the box can still be tabbed out of backwards.
+      if (event.key === 'Tab' && !event.shiftKey) {
         event.preventDefault()
-        put(options[at]!.insert)
+        put(options[Math.max(at, 0)]!.insert)
         return
       }
       // Enter takes the highlighted suggestion only when one has been moved to. Otherwise it runs
       // the query, because pressing Enter on something you typed in full must not silently replace
       // it with whatever happened to be first in a list.
-      if (event.key === 'Enter' && at > 0) {
+      if (event.key === 'Enter' && at >= 0) {
         event.preventDefault()
         put(options[at]!.insert)
         return
       }
     }
-    // One key. What it does is what the mode beside it says it does, which is the whole reason
-    // the mode is a visible control rather than a modifier you have to know about.
-    if (event.key === 'Enter') {
-      if (mode === 'ask') ask(text)
-      else submit(text)
-    }
+    if (event.key === 'Enter') submit(text)
   }
 
   return (
-    <div className={mode === 'ask' ? 'find find-asking' : 'find'} ref={box}>
-      {/* The mode, at the head of the box, so what Enter is about to do is readable without
-          pressing it. Two states shown as two controls rather than one that cycles — the same
-          arrangement the theme switch uses two controls along. */}
-      <div className="find-mode" role="group" aria-label="What the box does">
-        <button
-          type="button"
-          aria-pressed={mode === 'query'}
-          aria-label={mode === 'query' ? 'Search' : 'Search with a query'}
-          title={mode === 'query' ? 'Search' : 'Search with a query'}
-          onClick={() => {
-            if (mode !== 'query') {
-              flip('query')
-              input.current?.focus()
-              return
-            }
-            if (text.trim() === '') {
-              input.current?.focus()
-              return
-            }
-            submit(text)
-          }}
-        >
-          <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden>
-            <circle cx="7" cy="7" r="4.5" />
-            <path d="M10.4 10.4 L14 14" strokeLinecap="round" />
-          </svg>
-        </button>
-        <button
-          type="button"
-          aria-pressed={mode === 'ask'}
-          title="Ask a question and let your own LLM write the query"
-          onClick={() => {
-            flip('ask')
+    <div className="find" ref={box}>
+      <button
+        type="button"
+        className="find-go"
+        aria-label="Search"
+        title="Search"
+        onClick={() => {
+          if (text.trim() === '') {
             input.current?.focus()
-          }}
-        >
-          ask
-        </button>
-      </div>
+            return
+          }
+          submit(text)
+        }}
+      >
+        <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden>
+          <circle cx="7" cy="7" r="4.5" />
+          <path d="M10.4 10.4 L14 14" strokeLinecap="round" />
+        </svg>
+      </button>
       <input
         ref={input}
         type="search"
@@ -303,14 +223,13 @@ export function SearchBar({
         value={text}
         spellCheck={false}
         autoComplete="off"
-        placeholder={
-          mode === 'ask'
-            ? 'Ask a question'
-            : slug === undefined || slug === null
-              ? 'Search every project'
-              : 'Search this project'
-        }
-        aria-label={mode === 'ask' ? 'Ask a question' : 'Search'}
+        placeholder={slug === undefined || slug === null ? 'Search every project' : 'Search this project'}
+        aria-label="Search"
+        role="combobox"
+        aria-autocomplete="list"
+        aria-expanded={shown}
+        aria-controls={menuId}
+        aria-activedescendant={shown && at >= 0 ? optionId(at) : undefined}
         onChange={(event) => {
           setText(event.target.value)
           setOpen(true)
@@ -318,8 +237,7 @@ export function SearchBar({
         onFocus={() => setOpen(true)}
         onKeyDown={onKeyDown}
       />
-      {asking ? <span className="find-busy">asking…</span> : null}
-      {asking ? null : text !== '' || (initial ?? '') !== '' || (source ?? '') !== '' ? (
+      {text !== '' || (initial ?? '') !== '' || (source ?? '') !== '' ? (
         <button
           type="button"
           className="find-clear"
@@ -332,23 +250,30 @@ export function SearchBar({
           </svg>
         </button>
       ) : (
-        <kbd className="find-key">/</kbd>
+        <kbd className="find-key" title="Press / or Ctrl+K to search from anywhere">
+          /
+        </kbd>
       )}
-      {refused === null ? null : (
-        <p className="find-refused" role="alert">
-          {refused}
-        </p>
-      )}
-      {open && options.length > 0 ? (
-        <ul className="find-menu" role="listbox">
-          {options.map((option, index) => (
-            <li key={option.insert + option.label}>
-              <button
-                type="button"
+      {/* Said aloud for anyone who cannot see the menu open: how many suggestions there are. */}
+      <span className="sr-only" role="status" aria-live="polite">
+        {shown ? `${options.length} suggestion${options.length === 1 ? '' : 's'}, arrow keys to choose` : ''}
+      </span>
+      {shown ? (
+        <div className="find-menu">
+          {text.trim() === '' ? <p className="find-head">Filter by a field, or type any word</p> : null}
+          {/* The options are not buttons: focus stays in the input, which is what makes typing,
+              arrowing and completing one motion. `aria-activedescendant` says which one is lit. */}
+          <ul id={menuId} role="listbox" aria-label="Suggestions">
+            {options.map((option, index) => (
+              <li
+                key={option.insert + option.label}
+                id={optionId(index)}
                 role="option"
                 aria-selected={index === at}
                 className={index === at ? 'on' : undefined}
                 onMouseEnter={() => setAt(index)}
+                // Focus stays in the input; a blur would take the caret away from the query.
+                onMouseDown={(event) => event.preventDefault()}
                 onClick={() => put(option.insert)}
               >
                 <span className="find-name">{option.label}</span>
@@ -356,10 +281,14 @@ export function SearchBar({
                 {option.rounds === undefined ? null : (
                   <span className="find-count">{count(option.rounds)}</span>
                 )}
-              </button>
-            </li>
-          ))}
-        </ul>
+              </li>
+            ))}
+          </ul>
+          <p className="find-hint" aria-hidden>
+            <kbd>↑</kbd>
+            <kbd>↓</kbd> choose · <kbd>Tab</kbd> complete · <kbd>Enter</kbd> search · <kbd>Esc</kbd> close
+          </p>
+        </div>
       ) : null}
     </div>
   )
@@ -392,15 +321,25 @@ function wordAt(text: string): { text: string; from: number; to: number } {
 /**
  * What to offer for what has been typed so far.
  *
- * Before a colon, the fields whose name or description matches. After one, that field's values —
+ * On an empty box, every field: the language is only learnable if the box says what it takes before
+ * you have had to guess a name. Before a colon, the fields whose name or description matches. After
+ * one, that field's values —
  * from the index where it has them, and from the parser's own table where the field is an enum, so
  * `agent:` and `is:` complete even in a store with nothing collected in it yet.
  */
-function suggest(facets: FacetPayload | null, key: string | null, typed: string): Option[] {
+function suggest(
+  facets: FacetPayload | null,
+  key: string | null,
+  typed: string,
+  empty: boolean,
+): Option[] {
   if (facets === null) return []
   const wanted = typed.toLowerCase()
 
   if (key === null) {
+    if (empty) {
+      return facets.fields.map((field) => ({ label: `${field.key}:`, says: field.says, insert: `${field.key}:` }))
+    }
     if (wanted === '') return []
     return facets.fields
       .filter((field) => field.key.startsWith(wanted) || field.says.toLowerCase().includes(wanted))
