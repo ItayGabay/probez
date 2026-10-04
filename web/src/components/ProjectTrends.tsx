@@ -23,7 +23,7 @@ export function ProjectTrends({
   peak: PeakContextDay[]
   reusedFresh: ReusedFreshDay[]
 }): ReactElement {
-  const [range, setRange] = useState<RangeDays>(7)
+  const [range, setRange] = useState<RangeDays>(30)
   const end = latestDay([...peak.map((day) => day.day), ...reusedFresh.map((day) => day.day)])
   const peakInRange = end === null ? [] : daysInRange(peak, end, range)
   const reusedInRange = end === null ? [] : daysInRange(reusedFresh, end, range)
