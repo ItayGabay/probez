@@ -4,13 +4,14 @@ import { styleOf } from '../categories'
 import { Chrome, Facts, Info, Loading, Problem } from '../components/Chrome'
 import { ENTITY_LABEL } from '../components/SearchBar'
 import { SourceTag } from '../components/SourceMarks'
+import { instant, naturalFor, ordered, SortHead, useSort } from '../components/SortHead'
 import { MixBar } from '../components/WorkBars'
 import { ago, clip, count, duration, money, percent, shortId, when } from '../format'
 import { go, href, linkProps } from '../router'
 import type { Entity } from '../router'
 import { useData } from '../useData'
 import { useEffect } from 'react'
-import type { KeyboardEvent, ReactElement } from 'react'
+import type { KeyboardEvent, ReactElement, ReactNode } from 'react'
 
 /**
  * Queries worth running before you know the language, each one a link. Reading an example and
@@ -323,6 +324,100 @@ function toTask(hit: SearchHit, q: string): string | null {
   return href.task(hit.slug, hit.session, hit.task, hit.round, null, null, q)
 }
 
+/** Every column any results table has. Each table sorts by the ones it shows. */
+type HitSort =
+  | 'project'
+  | 'id'
+  | 'work'
+  | 'cost'
+  | 'time'
+  | 'when'
+  | 'says'
+  | 'matched'
+  | 'of'
+  | 'last'
+  | 'asked'
+  | 'sessions'
+  | 'kind'
+  | 'calls'
+  | 'again'
+  | 'about'
+  | 'depth'
+  | 'wide'
+  | 'steps'
+  | 'outcome'
+
+const hitNatural = naturalFor<HitSort>('project', 'id', 'work', 'says', 'asked', 'kind', 'about', 'outcome')
+
+/**
+ * What a results column sorts by: the figure the cell shows. A cell showing a dash is null, so it
+ * sorts after every measured row whichever way the arrow points.
+ */
+function hitValue(hit: SearchHit, key: HitSort): number | string | null {
+  switch (key) {
+    case 'project':
+      return hit.project
+    case 'id':
+      return `${hit.session ?? ''}#${hit.task ?? ''}.${hit.round ?? hit.ref ?? ''}`
+    case 'work':
+      return hit.category === null || hit.category === undefined ? null : styleOf(hit.category).label
+    case 'cost':
+      return hit.cost === null || hit.cost === undefined || hit.unpriced === hit.rounds ? null : hit.cost
+    case 'time':
+      return hit.ms ?? null
+    case 'when':
+      return instant(hit.ts)
+    case 'says':
+      return hit.says === '' || hit.says === undefined ? (hit.tools ?? null) : hit.says
+    case 'matched':
+      return hit.rounds ?? 0
+    case 'of':
+      return hit.of ?? hit.rounds ?? 0
+    case 'last':
+      return instant(hit.last_ts)
+    case 'asked':
+      return hit.asked === '' ? null : (hit.asked ?? null)
+    case 'sessions':
+      return hit.sessions ?? 0
+    case 'kind':
+      return hit.kind ?? null
+    case 'calls':
+      return hit.calls ?? 0
+    case 'again':
+      return hit.repeats ?? 0
+    case 'about':
+      return (hit.terms ?? []).length === 0 ? null : (hit.terms ?? []).join(' ')
+    case 'depth':
+      return hit.depth ?? null
+    case 'wide':
+      return hit.breadth ?? null
+    case 'steps':
+      return hit.steps ?? null
+    case 'outcome':
+      return hit.outcome ?? null
+  }
+}
+
+/**
+ * The hits in the order a heading says, and the headings that say it.
+ *
+ * Sorting a page of results reorders that page, not the query: what was found, and which of it is
+ * shown when there is more than fits, is still the query's to decide — `sort:` in the bar is how
+ * to ask for it.
+ */
+function useHitSort(hits: SearchHit[]): {
+  rows: SearchHit[]
+  head: (label: string, key: HitSort, className?: string, after?: ReactNode) => ReactElement
+} {
+  const [sorted, sortBy] = useSort<HitSort>(hitNatural)
+  return {
+    rows: ordered(hits, sorted, hitValue),
+    head: (label, key, className, after) => (
+      <SortHead label={label} head={key} sorted={sorted} onSort={sortBy} className={className} after={after} />
+    ),
+  }
+}
+
 function Project({ hit, many }: { hit: SearchHit; many: boolean }): ReactElement | null {
   if (!many) return null
   return (
@@ -335,21 +430,22 @@ function Project({ hit, many }: { hit: SearchHit; many: boolean }): ReactElement
 }
 
 function Rounds({ hits, many, q }: { hits: SearchHit[]; many: boolean; q: string }): ReactElement {
+  const { rows, head } = useHitSort(hits)
   return (
     <table>
       <thead>
         <tr>
-          {many ? <th>Project</th> : null}
-          <th>Round</th>
-          <th>Work</th>
-          <th className="r">Cost</th>
-          <th className="r">Time</th>
-          <th className="r find-when">When</th>
-          <th>Says</th>
+          {many ? head('Project', 'project') : null}
+          {head('Round', 'id')}
+          {head('Work', 'work')}
+          {head('Cost', 'cost', 'r')}
+          {head('Time', 'time', 'r')}
+          {head('When', 'when', 'r find-when')}
+          {head('Says', 'says')}
         </tr>
       </thead>
       <tbody>
-        {hits.map((hit, at) => {
+        {rows.map((hit, at) => {
           const to = toTask(hit, q)
           return (
             <tr key={at} {...rowTo(to)}>
@@ -419,22 +515,21 @@ function Matched({ hit }: { hit: SearchHit }): ReactElement {
 const OF = 'Rounds in the whole thing, of which the column to the left matched.'
 
 function Sessions({ hits, many }: { hits: SearchHit[]; many: boolean }): ReactElement {
+  const { rows, head } = useHitSort(hits)
   return (
     <table>
       <thead>
         <tr>
-          {many ? <th>Project</th> : null}
-          <th>Session</th>
-          <th className="r">Matched</th>
-          <th className="r">
-            Of<Info says={OF} />
-          </th>
-          <th className="r">Cost</th>
-          <th className="r">Last</th>
+          {many ? head('Project', 'project') : null}
+          {head('Session', 'id')}
+          {head('Matched', 'matched', 'r')}
+          {head('Of', 'of', 'r', <Info says={OF} />)}
+          {head('Cost', 'cost', 'r')}
+          {head('Last', 'last', 'r')}
         </tr>
       </thead>
       <tbody>
-        {hits.map((hit, at) => {
+        {rows.map((hit, at) => {
           const to =
             hit.slug === undefined || hit.session === undefined
               ? null
@@ -463,22 +558,21 @@ function Sessions({ hits, many }: { hits: SearchHit[]; many: boolean }): ReactEl
 }
 
 function Tasks({ hits, many, q }: { hits: SearchHit[]; many: boolean; q: string }): ReactElement {
+  const { rows, head } = useHitSort(hits)
   return (
     <table>
       <thead>
         <tr>
-          {many ? <th>Project</th> : null}
-          <th>Task</th>
-          <th className="r">Matched</th>
-          <th className="r">
-            Of<Info says={OF} />
-          </th>
-          <th className="r">Cost</th>
-          <th>Asked</th>
+          {many ? head('Project', 'project') : null}
+          {head('Task', 'id')}
+          {head('Matched', 'matched', 'r')}
+          {head('Of', 'of', 'r', <Info says={OF} />)}
+          {head('Cost', 'cost', 'r')}
+          {head('Asked', 'asked')}
         </tr>
       </thead>
       <tbody>
-        {hits.map((hit, at) => {
+        {rows.map((hit, at) => {
           const to = toTask(hit, q)
           return (
             <tr key={at} {...rowTo(to)}>
@@ -498,22 +592,21 @@ function Tasks({ hits, many, q }: { hits: SearchHit[]; many: boolean; q: string 
 }
 
 function Projects({ hits }: { hits: SearchHit[] }): ReactElement {
+  const { rows, head } = useHitSort(hits)
   return (
     <table>
       <thead>
         <tr>
-          <th>Project</th>
-          <th className="r">Matched</th>
-          <th className="r">
-            Of<Info says={OF} />
-          </th>
-          <th className="r">Sessions</th>
-          <th className="r">Cost</th>
-          <th className="r">Last</th>
+          {head('Project', 'project')}
+          {head('Matched', 'matched', 'r')}
+          {head('Of', 'of', 'r', <Info says={OF} />)}
+          {head('Sessions', 'sessions', 'r')}
+          {head('Cost', 'cost', 'r')}
+          {head('Last', 'last', 'r')}
         </tr>
       </thead>
       <tbody>
-        {hits.map((hit, at) => (
+        {rows.map((hit, at) => (
           <tr key={at} {...rowTo(hit.slug === undefined ? null : href.project(hit.slug))}>
             <td>{hit.project}</td>
             <Matched hit={hit} />
@@ -528,20 +621,21 @@ function Projects({ hits }: { hits: SearchHit[] }): ReactElement {
 }
 
 function Questions({ hits, many }: { hits: SearchHit[]; many: boolean }): ReactElement {
+  const { rows, head } = useHitSort(hits)
   return (
     <table>
       <thead>
         <tr>
-          {many ? <th>Project</th> : null}
-          <th>Question</th>
-          <th>Kind</th>
-          <th className="r">Calls</th>
-          <th className="r">Again</th>
-          <th>Asked about</th>
+          {many ? head('Project', 'project') : null}
+          {head('Question', 'id')}
+          {head('Kind', 'kind')}
+          {head('Calls', 'calls', 'r')}
+          {head('Again', 'again', 'r')}
+          {head('Asked about', 'about')}
         </tr>
       </thead>
       <tbody>
-        {hits.map((hit, at) => {
+        {rows.map((hit, at) => {
           const to =
             hit.slug === undefined || hit.session === undefined || hit.task === undefined
               ? null
@@ -565,21 +659,22 @@ function Questions({ hits, many }: { hits: SearchHit[]; many: boolean }): ReactE
 }
 
 function Trails({ hits, many }: { hits: SearchHit[]; many: boolean }): ReactElement {
+  const { rows, head } = useHitSort(hits)
   return (
     <table>
       <thead>
         <tr>
-          {many ? <th>Project</th> : null}
-          <th>Trail</th>
-          <th className="r">Depth</th>
-          <th className="r">Wide</th>
-          <th className="r">Steps</th>
-          <th>Outcome</th>
-          <th className="r">Time</th>
+          {many ? head('Project', 'project') : null}
+          {head('Trail', 'id')}
+          {head('Depth', 'depth', 'r')}
+          {head('Wide', 'wide', 'r')}
+          {head('Steps', 'steps', 'r')}
+          {head('Outcome', 'outcome')}
+          {head('Time', 'time', 'r')}
         </tr>
       </thead>
       <tbody>
-        {hits.map((hit, at) => {
+        {rows.map((hit, at) => {
           const to =
             hit.slug === undefined || hit.session === undefined || hit.task === undefined
               ? null

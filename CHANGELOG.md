@@ -78,6 +78,18 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html). It is pub
   are. On the results page, rows take focus and open on Enter, the tabs move with ←/→, the empty
   page offers example queries you can click, a search that finds nothing says why and offers every
   project, and the browser tab is titled with the query.
+- **Every table sorts, by every column it heads.** Projects, a project's sessions, trails,
+  questions and tools, a session's tasks, where agent work goes, a trail or question step by step,
+  every kind of search result, and both tables under Settings. Click a heading to order by it —
+  names A→Z, everything else biggest first — again to reverse it, and a third time to go back to
+  the order the rows arrived in, which keeps a subagent under the session that started it and a
+  trail in the order it was walked. A table that opens sorted by one of its own columns (projects
+  by last activity, questions by calls) only turns that column round. The arrow marks the column in
+  force. Blanks — a session with no priced rounds, a model with no rate — sort last either way.
+  Work sorts by the kind of work a row mostly was; a sub-row stays under the row it belongs to and
+  sorts among its siblings. A rate sorts by its saved value, so a row does not move while you type.
+  Sorting search results reorders the page you are on; `sort:` in the query still decides what is
+  found.
 - **Trends open on 30 days rather than 7.** A week is often a handful of task days, too few to read
   a trend from; 7 and 90 are still in the range picker.
 - **A reader on Windows can be an npm-installed command.** `claude`, `codex` and the like install

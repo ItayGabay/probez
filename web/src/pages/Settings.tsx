@@ -5,6 +5,7 @@ import type { PricedModel, PricingPayload, Rates, ReaderPayload } from '../api'
 import { Chrome, Loading, Problem } from '../components/Chrome'
 import { CommandKinds } from '../components/CommandKinds'
 import { DangerZone } from '../components/DangerZone'
+import { naturalFor, ordered, SortHead, useSort } from '../components/SortHead'
 import { count } from '../format'
 import { href } from '../router'
 import type { ReactElement } from 'react'
@@ -30,7 +31,21 @@ const FIELDS: Array<{ key: keyof Rates; label: string; hint: string }> = [
   { key: 'out', label: 'Output', hint: 'Tokens the model produced.' },
 ]
 
-const BLANK: Rates = { in: 0, cache_write_5m: 0, cache_write_1h: 0, cache_read: 0, out: 0 }
+type RateSort = 'model' | 'rounds' | keyof Rates
+
+const rateNatural = naturalFor<RateSort>('model')
+
+/**
+ * What a column of the rate table sorts by. A rate is the saved one rather than the one being
+ * typed, so a row stays put under the cursor until Save; an unpriced model sorts last.
+ */
+function rateValue(model: PricedModel, key: RateSort): number | string | null {
+  if (key === 'model') return model.model
+  if (key === 'rounds') return model.rounds
+  return model.rates === null ? null : model.rates[key]
+}
+
+const BLANK: Rates ={ in: 0, cache_write_5m: 0, cache_write_1h: 0, cache_read: 0, out: 0 }
 
 /**
  * What each model charges, per million tokens.
@@ -53,6 +68,7 @@ export function Settings(): ReactElement {
   // Bumped after a clear. The rate table counts the rounds each model was used for, and a clear
   // is the one thing on this page that changes them.
   const [read, setRead] = useState(0)
+  const [sorted, sortBy] = useSort<RateSort>(rateNatural)
   /**
    * Models named here rather than found in the store.
    *
@@ -160,27 +176,35 @@ export function Settings(): ReactElement {
               <table>
                 <thead>
                   <tr>
-                    <th style={{ width: 210 }}>Model</th>
-                    <th className="r" style={{ width: 80 }}>
-                      Rounds
-                    </th>
+                    <SortHead label="Model" head="model" sorted={sorted} onSort={sortBy} style={{ width: 210 }} />
+                    <SortHead label="Rounds" head="rounds" sorted={sorted} onSort={sortBy} className="r" style={{ width: 80 }} />
                     {FIELDS.map((field) => (
-                      <th key={field.key} className="r" title={field.hint}>
-                        {field.label}
-                      </th>
+                      <SortHead
+                        key={field.key}
+                        label={field.label}
+                        head={field.key}
+                        sorted={sorted}
+                        onSort={sortBy}
+                        className="r"
+                        title={`${field.hint} Sorts by the saved rate, so a row does not move while you type.`}
+                      />
                     ))}
                     <th style={{ width: 70 }} />
                   </tr>
                 </thead>
                 <tbody>
-                  {[
-                    ...data.models,
-                    // Shown as a row like any other, with no rounds behind it, so it is priced and
-                    // saved by exactly the controls the rest of the table uses.
-                    ...added
-                      .filter((one) => !data.models.some((model) => model.model === one))
-                      .map((one) => ({ model: one, rounds: 0, rates: null, custom: false })),
-                  ].map((model) => (
+                  {ordered(
+                    [
+                      ...data.models,
+                      // Shown as a row like any other, with no rounds behind it, so it is priced and
+                      // saved by exactly the controls the rest of the table uses.
+                      ...added
+                        .filter((one) => !data.models.some((model) => model.model === one))
+                        .map((one): PricedModel => ({ model: one, rounds: 0, rates: null, custom: false })),
+                    ],
+                    sorted,
+                    rateValue,
+                  ).map((model) => (
                     <tr key={model.model}>
                       <td className="mono">
                         {model.model}

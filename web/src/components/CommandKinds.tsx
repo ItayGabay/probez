@@ -4,6 +4,11 @@ import type { ReactElement } from 'react'
 import { api } from '../api'
 import type { CommandsPayload } from '../api'
 import { count } from '../format'
+import { naturalFor, ordered, SortHead, useSort } from './SortHead'
+
+type CommandSort = 'command' | 'calls' | 'kind'
+
+const commandNatural = naturalFor<CommandSort>('command', 'kind')
 
 /**
  * Command names this machine knows and probez does not.
@@ -24,6 +29,7 @@ export function CommandKinds(): ReactElement {
   const [saving, setSaving] = useState(false)
   const [said, setSaid] = useState<string | null>(null)
   const [bad, setBad] = useState(false)
+  const [sorted, sortBy] = useSort<CommandSort>(commandNatural)
 
   const load = (payload: CommandsPayload): void => {
     setData(payload)
@@ -105,16 +111,27 @@ export function CommandKinds(): ReactElement {
         <table>
           <thead>
             <tr>
-              <th style={{ width: 240 }}>Command</th>
-              <th className="r" style={{ width: 90 }}>
-                Calls
-              </th>
-              <th style={{ width: 160 }}>Counts as</th>
+              <SortHead label="Command" head="command" sorted={sorted} onSort={sortBy} style={{ width: 240 }} />
+              <SortHead label="Calls" head="calls" sorted={sorted} onSort={sortBy} className="r" style={{ width: 90 }} />
+              <SortHead
+                label="Counts as"
+                head="kind"
+                sorted={sorted}
+                onSort={sortBy}
+                style={{ width: 160 }}
+                title="Sorts by what each command is saved as. A choice you have not saved yet stays where it is."
+              />
               <th />
             </tr>
           </thead>
           <tbody>
-            {rows.map((name) => (
+            {ordered(rows, sorted, (name: string, key: CommandSort) =>
+              key === 'command'
+                ? name
+                : key === 'calls'
+                  ? (callsOf.get(name) ?? null)
+                  : (data.commands[name] ?? null),
+            ).map((name) => (
               <tr key={name}>
                 <td className="mono">{name}</td>
                 <td className="r num dim">

@@ -396,6 +396,11 @@ thead th .sort {
   display: inline-flex;
   align-items: center;
   gap: 4px;
+  /* Browsers reset these on a button, so without them a sorting heading reads in a different
+     case from the plain ones beside it. */
+  text-transform: inherit;
+  letter-spacing: inherit;
+  font-weight: inherit;
 }
 
 thead th .sort:hover,
@@ -407,6 +412,24 @@ thead th[aria-sort='descending'] .sort {
 /* Small enough to read as a mark on the heading rather than as another letter in it. */
 thead th .caret {
   font-size: 7px;
+}
+
+/* A heading that sorts but is not in force: present enough to say it can be clicked, quiet enough
+   that the one column actually sorting still stands out. */
+thead th .caret.idle {
+  font-size: 10px;
+  opacity: 0.45;
+}
+
+thead th .sort:hover .caret.idle,
+thead th .sort:focus-visible .caret.idle {
+  opacity: 1;
+}
+
+thead th .sort:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 2px;
 }
 
 tbody td {
