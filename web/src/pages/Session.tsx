@@ -1,11 +1,14 @@
 import { useState } from 'react'
 
 import { api } from '../api'
+import type { ViewTask } from '../api'
 import { SyncButton } from '../components/Actions'
 import { Chrome, Facts, Loading, Problem } from '../components/Chrome'
 import type { Fact } from '../components/Chrome'
+import { naturalFor, ordered, SortHead, useSort } from '../components/SortHead'
 import { SourceTag } from '../components/SourceMarks'
 import { InTokens, Lines, Reused, TokenCells, TokenHeaders } from '../components/Tokens'
+import type { TokenSplit } from '../components/Tokens'
 import { ContextUsage } from '../components/ContextUsage'
 import { Trace } from '../components/Trace'
 import { MixBar, WorkBars, ErrorsSearchLink } from '../components/WorkBars'
@@ -14,6 +17,45 @@ import { go, href, linkProps, withSource } from '../router'
 import type { SourceChoice } from '../router'
 import { useData } from '../useData'
 import type { ReactElement } from 'react'
+
+/** Every column of the tasks table, each of which sorts. */
+type TaskSort =
+  | 'task'
+  | 'asked'
+  | 'rounds'
+  | 'tools'
+  | 'work'
+  | keyof TokenSplit
+  | 'lines'
+  | 'working'
+  | 'elapsed'
+
+// The task number reads in the order it was asked, which is first to last.
+const taskNatural = naturalFor<TaskSort>('task', 'asked', 'work')
+
+/** A task with no prompt has nothing to sort by under Asked, so it goes last rather than first. */
+function taskValue(task: ViewTask, key: TaskSort): number | string | null {
+  switch (key) {
+    case 'task':
+      return task.task
+    case 'asked':
+      return task.asked === '' ? null : task.asked
+    case 'rounds':
+      return task.rounds
+    case 'tools':
+      return task.tool_calls
+    case 'work':
+      return task.work?.short ?? null
+    case 'lines':
+      return task.added + task.removed
+    case 'working':
+      return task.gen_ms
+    case 'elapsed':
+      return task.elapsed_ms
+    default:
+      return task[key]
+  }
+}
 
 /**
  * One session: the run, its shape, and the turns it was made of.
@@ -38,6 +80,7 @@ export function Session({
     [slug, session, read],
   )
   const [selected, setSelected] = useState<number | null>(null)
+  const [sorted, sortBy] = useSort<TaskSort>(taskNatural)
 
   return (
     <>
@@ -119,19 +162,39 @@ export function Session({
               <table>
                 <thead>
                   <tr>
-                    <th style={{ width: 34 }} />
-                    <th>Asked</th>
-                    <th className="r">Rounds</th>
-                    <th className="r">Tools</th>
-                    <th>Work</th>
-                    <TokenHeaders />
-                    <th className="r">Lines</th>
-                    <th className="r">Working</th>
-                    <th className="r">Elapsed</th>
+                    <SortHead
+                      label="#"
+                      head="task"
+                      sorted={sorted}
+                      onSort={sortBy}
+                      style={{ width: 34 }}
+                      title="The order the tasks were asked in"
+                    />
+                    <SortHead label="Asked" head="asked" sorted={sorted} onSort={sortBy} />
+                    <SortHead label="Rounds" head="rounds" sorted={sorted} onSort={sortBy} className="r" />
+                    <SortHead label="Tools" head="tools" sorted={sorted} onSort={sortBy} className="r" />
+                    <SortHead
+                      label="Work"
+                      head="work"
+                      sorted={sorted}
+                      onSort={sortBy}
+                      title="Sorts by the kind of work the task mostly was"
+                    />
+                    <TokenHeaders sorted={sorted} onSort={sortBy} />
+                    <SortHead
+                      label="Lines"
+                      head="lines"
+                      sorted={sorted}
+                      onSort={sortBy}
+                      className="r"
+                      title="Sorts by lines added and removed together"
+                    />
+                    <SortHead label="Working" head="working" sorted={sorted} onSort={sortBy} className="r" />
+                    <SortHead label="Elapsed" head="elapsed" sorted={sorted} onSort={sortBy} className="r" />
                   </tr>
                 </thead>
                 <tbody>
-                  {data.tasks.map((task) => (
+                  {ordered(data.tasks, sorted, taskValue).map((task) => (
                     <tr
                       key={task.task}
                       className="row"

@@ -4,21 +4,31 @@ import { api } from '../api'
 import { Actions } from '../components/Actions'
 import { Chrome, Facts, Info, Loading, Problem } from '../components/Chrome'
 import { Import } from '../components/Import'
+import { instant, naturalFor, ordered, SortHead, useSort } from '../components/SortHead'
 import { SourceMarks } from '../components/SourceMarks'
 import { TokenCells, TokenHeaders } from '../components/Tokens'
+import type { TokenSplit } from '../components/Tokens'
 import { MixBar, mostlyUnpriced, UnpricedMark } from '../components/WorkBars'
 import { ago, count, percent } from '../format'
 import { go, href, linkProps } from '../router'
 import type { SourceChoice } from '../router'
 import { SOURCE_LABEL } from '../source'
 import { useData } from '../useData'
-import type { StoredProject } from '../api'
-import type { CSSProperties, ReactElement } from 'react'
+import type { ProjectsPayload, StoredProject } from '../api'
+import type { ReactElement } from 'react'
 
-/** What the projects table can be ordered by. */
-type SortKey = 'name' | 'activity' | 'updated'
+/** What the projects table can be ordered by, which is every column it has. */
+type SortKey =
+  | 'name'
+  | 'work'
+  | 'sessions'
+  | 'tasks'
+  | 'rounds'
+  | keyof TokenSplit
+  | 'activity'
+  | 'updated'
 
-type Direction = 'asc' | 'desc'
+const projectNatural = naturalFor<SortKey>('name', 'work')
 
 /**
  * When probez last read this project, which is a different fact from when the work happened.
@@ -32,74 +42,28 @@ function updatedAt(project: StoredProject): string | null {
 }
 
 /**
- * The rows in the order the headings say.
- *
- * A project with no date sorts last whichever way the column points: an unknown date is not an old
- * one, and turning the arrow around should not march the blanks to the top. Ties fall back to the
- * name, so the same store lists in the same order on every render.
+ * What a column sorts by. A project with no date sorts last whichever way the column points: an
+ * unknown date is not an old one. Work sorts by the kind of work the project mostly was.
  */
-function ordered<T extends StoredProject>(projects: T[], sort: SortKey, dir: Direction): T[] {
-  const byName = (a: T, b: T): number =>
-    a.project.localeCompare(b.project, undefined, { sensitivity: 'base', numeric: true })
-  const dateOf = sort === 'activity' ? (one: T) => one.last_ts : updatedAt
-  const flip = dir === 'asc' ? 1 : -1
-
-  return [...projects].sort((a, b) => {
-    if (sort === 'name') return flip * byName(a, b)
-    const left = dateOf(a)
-    const right = dateOf(b)
-    if (left === null || right === null) {
-      return left === right ? byName(a, b) : left === null ? 1 : -1
-    }
-    // ISO 8601 to the same precision, so comparing the text is comparing the instant — which is how
-    // the store already orders these before it hands them over.
-    return flip * left.localeCompare(right) || byName(a, b)
-  })
-}
-
-/**
- * A column heading that sorts.
- *
- * The button *is* the heading rather than sitting beside it, so the target is the word a person is
- * already reading and the keyboard reaches it for free. `aria-sort` on the cell is what says which
- * column is in force and which way it points.
- */
-function SortHead({
-  label,
-  head,
-  sort,
-  dir,
-  onSort,
-  className,
-  style,
-  title,
-}: {
-  label: string
-  head: SortKey
-  sort: SortKey
-  dir: Direction
-  onSort: (key: SortKey) => void
-  className?: string
-  style?: CSSProperties
-  title?: string
-}): ReactElement {
-  const active = sort === head
-  return (
-    <th
-      className={className}
-      style={style}
-      aria-sort={active ? (dir === 'asc' ? 'ascending' : 'descending') : 'none'}
-    >
-      <button type="button" className="sort" onClick={() => onSort(head)} title={title}>
-        {label}
-        {/* Only the column actually in force carries a caret. Three greyed-out arrows read as three
-            sorts at once, and the one that is doing the work stops standing out. */}
-        <span className="caret" aria-hidden="true">
-          {active ? (dir === 'asc' ? '▲' : '▼') : ''}
-        </span>
-      </button>
-    </th>
-  )
+function projectValue(project: ProjectsPayload['projects'][number], key: SortKey): number | string | null {
+  switch (key) {
+    case 'name':
+      return project.project
+    case 'work':
+      return project.work?.short ?? null
+    case 'sessions':
+      return project.sessions
+    case 'tasks':
+      return project.tasks
+    case 'rounds':
+      return project.rounds
+    case 'activity':
+      return instant(project.last_ts)
+    case 'updated':
+      return instant(updatedAt(project))
+    default:
+      return project[key]
+  }
 }
 
 /**
@@ -117,18 +81,7 @@ export function Projects({ source = null }: { source?: SourceChoice | null }): R
 
   // Newest activity first, which is the order the store already hands them over in — so the first
   // paint is the same list it has always been, and sorting is something you go and ask for.
-  const [sort, setSort] = useState<SortKey>('activity')
-  const [dir, setDir] = useState<Direction>('desc')
-
-  // A name reads A→Z and a date reads newest-first, so a column starts at whichever of those it is.
-  // Picking the column already in force is the only thing that turns it around.
-  const orderBy = (key: SortKey): void => {
-    if (key === sort) setDir(dir === 'asc' ? 'desc' : 'asc')
-    else {
-      setSort(key)
-      setDir(key === 'name' ? 'asc' : 'desc')
-    }
-  }
+  const [sorted, orderBy] = useSort<SortKey>(projectNatural, { key: 'activity', dir: 'desc' })
 
   return (
     <>
@@ -160,15 +113,25 @@ export function Projects({ source = null }: { source?: SourceChoice | null }): R
                 <table>
                   <thead>
                     <tr>
-                      <SortHead label="Project" head="name" sort={sort} dir={dir} onSort={orderBy} />
-                      <th style={{ width: '22%' }}>
-                        Work{' '}
-                        <Info says="The bar is the mix of work by rounds. Under it is the largest of those, and what it cost: the share the project page shows in its Share column, at the rates in Settings." />
-                      </th>
-                      <th className="r">Sessions</th>
-                      <th className="r">Tasks</th>
-                      <th className="r">Rounds</th>
-                      <TokenHeaders />
+                      <SortHead label="Project" head="name" sorted={sorted} onSort={orderBy} />
+                      <SortHead
+                        label="Work"
+                        head="work"
+                        sorted={sorted}
+                        onSort={orderBy}
+                        style={{ width: '22%' }}
+                        title="Sorts by the kind of work the project mostly was"
+                        after={
+                          <>
+                            {' '}
+                            <Info says="The bar is the mix of work by rounds. Under it is the largest of those, and what it cost: the share the project page shows in its Share column, at the rates in Settings." />
+                          </>
+                        }
+                      />
+                      <SortHead label="Sessions" head="sessions" sorted={sorted} onSort={orderBy} className="r" />
+                      <SortHead label="Tasks" head="tasks" sorted={sorted} onSort={orderBy} className="r" />
+                      <SortHead label="Rounds" head="rounds" sorted={sorted} onSort={orderBy} className="r" />
+                      <TokenHeaders sorted={sorted} onSort={orderBy} />
                       {/* Two dates, and they answer different questions. One is when the work
                           happened; the other is when probez last went and looked, which is a fact
                           about probez rather than about the work. Both are here because "which of
@@ -177,8 +140,7 @@ export function Projects({ source = null }: { source?: SourceChoice | null }): R
                       <SortHead
                         label="Last activity"
                         head="activity"
-                        sort={sort}
-                        dir={dir}
+                        sorted={sorted}
                         onSort={orderBy}
                         className="r"
                         title="When the most recent round in this project ran"
@@ -186,8 +148,7 @@ export function Projects({ source = null }: { source?: SourceChoice | null }): R
                       <SortHead
                         label="Updated"
                         head="updated"
-                        sort={sort}
-                        dir={dir}
+                        sorted={sorted}
                         onSort={orderBy}
                         className="r"
                         title="When probez last read this project: collected here, or imported from a file"
@@ -196,7 +157,7 @@ export function Projects({ source = null }: { source?: SourceChoice | null }): R
                     </tr>
                   </thead>
                   <tbody>
-                    {ordered(data.projects, sort, dir).map((project) => (
+                    {ordered(data.projects, sorted, projectValue).map((project) => (
                       <tr
                         key={project.slug}
                         className="row"

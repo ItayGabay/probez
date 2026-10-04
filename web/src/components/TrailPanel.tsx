@@ -1,6 +1,20 @@
 import { duration, percent, tokens } from '../format'
-import type { Trail } from '../api'
+import { callValue } from './QuestionPanel'
+import type { CallSort } from './QuestionPanel'
+import { naturalFor, ordered, SortHead, useSort } from './SortHead'
+import type { Trail, TrailStep } from '../api'
 import type { ReactElement } from 'react'
+
+type StepSort = CallSort | 'followed'
+
+// Every one of these reads first to last, A→Z or widest first.
+const stepNatural = naturalFor<StepSort>('round', 'reached', 'followed', 'call')
+
+/** Followed sorts by why the hop was made, then what linked it; the call that started it goes first. */
+function stepValue(step: TrailStep, key: StepSort): number | string | null {
+  if (key !== 'followed') return callValue(step, key)
+  return step.source === null ? '' : `${step.edge ?? ''} ${step.via}`
+}
 
 /**
  * One trail, hop by hop.
@@ -30,6 +44,7 @@ export function TrailPanel({
   for (const step of trail.steps) {
     depths.set(step.at, step.source === null ? 0 : (depths.get(step.source) ?? 0) + 1)
   }
+  const [sorted, sortBy] = useSort<StepSort>(stepNatural)
 
   return (
     <div className="trail-panel">
@@ -65,18 +80,32 @@ export function TrailPanel({
         </colgroup>
         <thead>
           <tr>
-            <th>Round</th>
-            <th title="How wide this call reached: a whole tree, a directory, a file, or a span of lines.">
-              Reached
-            </th>
-            <th title="Why this call follows the one before it, and the path or word that links them.">
-              Followed
-            </th>
-            <th title="What was actually run. Hover for the whole of it.">Call</th>
+            <SortHead label="Round" head="round" sorted={sorted} onSort={sortBy} />
+            <SortHead
+              label="Reached"
+              head="reached"
+              sorted={sorted}
+              onSort={sortBy}
+              title="How wide this call reached: a whole tree, a directory, a file, or a span of lines."
+            />
+            <SortHead
+              label="Followed"
+              head="followed"
+              sorted={sorted}
+              onSort={sortBy}
+              title="Why this call follows the one before it, and the path or word that links them."
+            />
+            <SortHead
+              label="Call"
+              head="call"
+              sorted={sorted}
+              onSort={sortBy}
+              title="What was actually run. Hover for the whole of it."
+            />
           </tr>
         </thead>
         <tbody>
-          {trail.steps.map((step) => (
+          {ordered(trail.steps, sorted, stepValue).map((step) => (
             <tr
               key={`${step.at}`}
               className={`row${selected === step.round ? ' here' : ''}`}
@@ -100,7 +129,12 @@ export function TrailPanel({
                   while the row says what was run rather than only which program ran. `Where` went
                   with the old name column: a command names its own paths. */}
               <td className="mono clip" title={step.text}>
-                <span style={{ paddingLeft: Math.min(depths.get(step.at) ?? 0, 5) * 14 }}>
+                {/* Depth only reads as a walk in the order it was walked. */}
+                <span
+                  style={{
+                    paddingLeft: sorted === null ? Math.min(depths.get(step.at) ?? 0, 5) * 14 : 0,
+                  }}
+                >
                   {step.text}
                 </span>
               </td>

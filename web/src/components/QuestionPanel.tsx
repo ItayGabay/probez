@@ -4,8 +4,53 @@ import { duration, shortId, tokens } from '../format'
 import { readingKey } from '../api'
 import { ASK_MEANING, ASKS, askTitle } from '../categories'
 import { linkProps } from '../router'
-import type { Question, Reading } from '../api'
+import { naturalFor, ordered, SortHead, useSort } from './SortHead'
+import type { Call, Question, Reading } from '../api'
 import type { ReactElement } from 'react'
+
+/** The columns every call-by-call table has. A question adds Asked to them, a trail Followed. */
+export type CallSort = 'round' | 'reached' | 'call'
+
+const REACH: Record<Call['scope'], number> = { tree: 0, dir: 1, file: 2, span: 3 }
+
+/**
+ * What a shared call-by-call column sorts by. Round is the order the calls were made in; a reach
+ * sorts widest first, the order `scope` runs in, rather than by the word.
+ */
+export function callValue(call: Call, key: CallSort): number | string {
+  switch (key) {
+    case 'round':
+      return call.at
+    case 'reached':
+      return REACH[call.scope]
+    case 'call':
+      return call.text
+  }
+}
+
+type StepSort = CallSort | 'asked'
+
+// Every one of these reads first to last, A→Z or widest first.
+const stepNatural = naturalFor<StepSort>('round', 'reached', 'asked', 'call')
+
+/** A call that searched for no words has nothing under Asked, so it sorts after those that did. */
+function stepValue(call: Call, key: StepSort): number | string | null {
+  if (key === 'asked') return call.probes.length === 0 ? null : call.probes.join(' ')
+  return callValue(call, key)
+}
+
+type QuestionSort =
+  | 'question'
+  | 'calls'
+  | 'again'
+  | 'fetch'
+  | 'guess'
+  | 'kind'
+  | 'about'
+  | 'in'
+  | 'time'
+
+const questionNatural = naturalFor<QuestionSort>('question', 'kind', 'about')
 
 /**
  * One question, call by call.
@@ -91,13 +136,17 @@ export function QuestionPanel({
 
   // Which calls asked something already asked. Marked where it happens rather than only totalled,
   // because the run of them is the finding: a count says four, a column shows which four.
+  // Worked out in the order the calls were made, and carried on each call, because "again" means
+  // again *after* the first time — re-sorting the rows must not move the mark to the earlier one.
   const seen = new Set<string>()
-  const again = question.calls.map((call) => {
+  const calls = question.calls.map((call) => {
     const signature = `${[...call.probes].sort().join(' ')}\0${[...call.sites].sort().join(' ')}`
     const repeat = seen.has(signature)
     seen.add(signature)
-    return repeat
+    return { call, repeat }
   })
+  const [sorted, sortBy] = useSort<StepSort>(stepNatural)
+  const rows = ordered(calls, sorted, ({ call }, key) => stepValue(call, key))
 
   const waste = [
     question.repeats > 0 ? `${question.repeats} re-asked` : '',
@@ -223,18 +272,32 @@ export function QuestionPanel({
         </colgroup>
         <thead>
           <tr>
-            <th>Round</th>
-            <th title="How wide this call reached: a whole tree, a directory, a file, or a span of lines.">
-              Reached
-            </th>
-            <th title="The words it searched for. ↺ marks a call that asked what this question had already asked.">
-              Asked
-            </th>
-            <th title="What was actually run. Hover for the whole of it.">Call</th>
+            <SortHead label="Round" head="round" sorted={sorted} onSort={sortBy} />
+            <SortHead
+              label="Reached"
+              head="reached"
+              sorted={sorted}
+              onSort={sortBy}
+              title="How wide this call reached: a whole tree, a directory, a file, or a span of lines."
+            />
+            <SortHead
+              label="Asked"
+              head="asked"
+              sorted={sorted}
+              onSort={sortBy}
+              title="The words it searched for. ↺ marks a call that asked what this question had already asked."
+            />
+            <SortHead
+              label="Call"
+              head="call"
+              sorted={sorted}
+              onSort={sortBy}
+              title="What was actually run. Hover for the whole of it."
+            />
           </tr>
         </thead>
         <tbody>
-          {question.calls.map((call, at) => (
+          {rows.map(({ call, repeat }) => (
             <tr
               key={`${call.at}`}
               className={`row${selected === call.round ? ' here' : ''}`}
@@ -248,7 +311,7 @@ export function QuestionPanel({
                 ) : (
                   call.probes.join(' ')
                 )}
-                {again[at] === true ? (
+                {repeat ? (
                   <span className="dim" title="Asked already, of the same places">
                     {' '}
                     ↺
@@ -300,10 +363,41 @@ export function QuestionsTable({
   /** What to say under the table, which is the caller's to write: it holds the totals. */
   note?: ReactElement
 }): ReactElement {
-  const sorted = [...questions].sort((a, b) => b.calls.length - a.calls.length)
-  const asked = sorted.filter((one) => one.calls.length > 1)
+  // Costliest first is where the table opens, and every other column is a press away.
+  const [sorted, sortBy] = useSort<QuestionSort>(questionNatural, { key: 'calls', dir: 'desc' })
+  const about = (one: Question): string | null => {
+    const read = readings?.[readingKey(one.session, one.task, one.at)]
+    if (read !== undefined) return read.asked
+    return one.terms.length === 0 ? null : one.terms.join(' ')
+  }
+  const asked = ordered(
+    questions.filter((one) => one.calls.length > 1),
+    sorted,
+    (one: Question, key: QuestionSort): number | string | null => {
+      switch (key) {
+        case 'question':
+          return hrefFor === undefined ? one.at : `${one.session}#${one.ref}`
+        case 'calls':
+          return one.calls.length
+        case 'again':
+          return one.repeats
+        case 'fetch':
+          return one.fetches
+        case 'guess':
+          return one.sweeps
+        case 'kind':
+          return one.kind
+        case 'about':
+          return about(one)
+        case 'in':
+          return one.in_tokens
+        case 'time':
+          return one.ms
+      }
+    },
+  )
 
-  if (sorted.length === 0) {
+  if (questions.length === 0) {
     return <p className="note">Nothing here went looking for anything.</p>
   }
 
@@ -318,25 +412,48 @@ export function QuestionsTable({
         <table>
           <thead>
             <tr>
-              <th>Question</th>
-              <th className="r">Calls</th>
-              <th className="r" title="Calls that asked the same words of the same places over again.">
-                Again
-              </th>
-              <th className="r" title="Calls that only turned a line number into a body.">
-                Fetch
-              </th>
-              <th className="r" title="Calls that named three or more different words at once.">
-                Guess
-              </th>
-              <th title="Which of six questions the calls were asking. Hover a kind for what it means.">
-                Kind
-              </th>
-              <th title="The words it searched for — or, where one has been asked for, what a reader said it was after.">
-                Asked about
-              </th>
-              <th className="r">In</th>
-              <th className="r">Time</th>
+              <SortHead label="Question" head="question" sorted={sorted} onSort={sortBy} />
+              <SortHead label="Calls" head="calls" sorted={sorted} onSort={sortBy} className="r" />
+              <SortHead
+                label="Again"
+                head="again"
+                sorted={sorted}
+                onSort={sortBy}
+                className="r"
+                title="Calls that asked the same words of the same places over again."
+              />
+              <SortHead
+                label="Fetch"
+                head="fetch"
+                sorted={sorted}
+                onSort={sortBy}
+                className="r"
+                title="Calls that only turned a line number into a body."
+              />
+              <SortHead
+                label="Guess"
+                head="guess"
+                sorted={sorted}
+                onSort={sortBy}
+                className="r"
+                title="Calls that named three or more different words at once."
+              />
+              <SortHead
+                label="Kind"
+                head="kind"
+                sorted={sorted}
+                onSort={sortBy}
+                title="Which of six questions the calls were asking. Hover a kind for what it means."
+              />
+              <SortHead
+                label="Asked about"
+                head="about"
+                sorted={sorted}
+                onSort={sortBy}
+                title="The words it searched for — or, where one has been asked for, what a reader said it was after."
+              />
+              <SortHead label="In" head="in" sorted={sorted} onSort={sortBy} className="r" />
+              <SortHead label="Time" head="time" sorted={sorted} onSort={sortBy} className="r" />
             </tr>
           </thead>
           <tbody>

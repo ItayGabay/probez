@@ -1,11 +1,13 @@
 import { useState } from 'react'
 
 import { api } from '../api'
-import type { Question, ToolRow, Trail } from '../api'
+import type { Question, ToolRow, Trail, ViewSession } from '../api'
 import { Actions } from '../components/Actions'
 import { Chrome, Facts, Info, Loading, Problem } from '../components/Chrome'
+import { instant, naturalFor, ordered, SortHead, useSort } from '../components/SortHead'
 import { SourceMarks, SourceTag } from '../components/SourceMarks'
 import { InTokens, Reused, TokenCells, TokenHeaders } from '../components/Tokens'
+import type { TokenSplit } from '../components/Tokens'
 import { MixBar, WorkBars, ErrorsSearchLink } from '../components/WorkBars'
 import { ProjectTrends } from '../components/ProjectTrends'
 import { QUESTIONS_ARIA, QuestionsTable, questionsExplained } from '../components/QuestionPanel'
@@ -16,6 +18,59 @@ import type { SourceChoice } from '../router'
 import { SOURCE_LABEL } from '../source'
 import { useData } from '../useData'
 import type { ReactElement } from 'react'
+
+/** Every column of the sessions table, each of which sorts. */
+type SessionSort =
+  | 'session'
+  | 'started'
+  | 'model'
+  | 'tasks'
+  | 'rounds'
+  | 'tools'
+  | 'work'
+  | keyof TokenSplit
+  | 'peak'
+  | 'cost'
+  | 'working'
+  | 'elapsed'
+
+const sessionNatural = naturalFor<SessionSort>('session', 'model', 'work')
+
+/**
+ * What a column sorts by: the figure the cell shows, not the text it shows it as.
+ *
+ * Blank is null wherever the cell shows a dash, so an unmeasured session sorts after every measured
+ * one rather than as though it had cost or held nothing. Work sorts by the kind of work the session
+ * mostly was, which is the widest band of its bar.
+ */
+function sessionValue(session: ViewSession, key: SessionSort): number | string | null {
+  switch (key) {
+    case 'session':
+      return session.session
+    case 'started':
+      return instant(session.first_ts)
+    case 'model':
+      return session.model === null ? null : shortModel(session.model)
+    case 'tasks':
+      return session.tasks
+    case 'rounds':
+      return session.rounds
+    case 'tools':
+      return session.tool_calls
+    case 'work':
+      return session.work?.short ?? null
+    case 'peak':
+      return session.peak_in_tokens
+    case 'cost':
+      return session.unpriced === session.rounds ? null : session.cost
+    case 'working':
+      return session.active_ms
+    case 'elapsed':
+      return session.elapsed_ms
+    default:
+      return session[key]
+  }
+}
 
 /**
  * One project: what its work was, and which sessions it was done in.
@@ -35,6 +90,8 @@ export function Project({
   const { data, error, loading } = useData(() => api.project(slug, source), [slug, read, source])
   const [tab, setTab] = useState<'work' | 'tools' | 'trends'>('work')
   const [list, setList] = useState<'sessions' | 'trails' | 'questions'>('sessions')
+  const [sorted, sortBy] = useSort<SessionSort>(sessionNatural)
+  const sessions = data === null ? [] : ordered(data.sessions, sorted, sessionValue)
 
   return (
     <>
@@ -188,32 +245,42 @@ export function Project({
               <table>
                 <thead>
                   <tr>
-                    <th>Session</th>
-                    <th>Started</th>
-                    <th>Model</th>
-                    <th className="r">Tasks</th>
-                    <th className="r">Rounds</th>
-                    <th className="r">Tools</th>
-                    <th>Work</th>
-                    <TokenHeaders />
-                    <th
+                    <SortHead label="Session" head="session" sorted={sorted} onSort={sortBy} />
+                    <SortHead label="Started" head="started" sorted={sorted} onSort={sortBy} />
+                    <SortHead label="Model" head="model" sorted={sorted} onSort={sortBy} />
+                    <SortHead label="Tasks" head="tasks" sorted={sorted} onSort={sortBy} className="r" />
+                    <SortHead label="Rounds" head="rounds" sorted={sorted} onSort={sortBy} className="r" />
+                    <SortHead label="Tools" head="tools" sorted={sorted} onSort={sortBy} className="r" />
+                    <SortHead
+                      label="Work"
+                      head="work"
+                      sorted={sorted}
+                      onSort={sortBy}
+                      title="Sorts by the kind of work the session mostly was"
+                    />
+                    <TokenHeaders sorted={sorted} onSort={sortBy} />
+                    <SortHead
+                      label="Peak context"
+                      head="peak"
+                      sorted={sorted}
+                      onSort={sortBy}
                       className="r"
                       title="Largest input context any round in this session recorded (max in_tokens). When the model has a published window, the share of that window is shown too. Not the sum of input tokens."
-                    >
-                      Peak context
-                    </th>
-                    <th
+                    />
+                    <SortHead
+                      label="Cost"
+                      head="cost"
+                      sorted={sorted}
+                      onSort={sortBy}
                       className="r"
                       title="What this session cost at the rates under Settings, worked out per round from its own model's prices and summed. Rounds whose model has no rate are left out, and the row is marked."
-                    >
-                      Cost
-                    </th>
-                    <th className="r">Working</th>
-                    <th className="r">Elapsed</th>
+                    />
+                    <SortHead label="Working" head="working" sorted={sorted} onSort={sortBy} className="r" />
+                    <SortHead label="Elapsed" head="elapsed" sorted={sorted} onSort={sortBy} className="r" />
                   </tr>
                 </thead>
                 <tbody>
-                  {data.sessions.map((session) => (
+                  {sessions.map((session) => (
                     <tr
                       key={session.session}
                       className="row"
@@ -340,6 +407,48 @@ function trailHref(slug: string, trail: Trail, source?: string | null): string {
   return withSource(href.task(slug, trail.session, trail.task, trail.steps[0]?.round, trail.ref), source)
 }
 
+type TrailSort =
+  | 'trail'
+  | 'steps'
+  | 'depth'
+  | 'wide'
+  | 'paths'
+  | 'back'
+  | 'root'
+  | 'ended'
+  | 'in'
+  | 'out'
+  | 'time'
+
+const trailNatural = naturalFor<TrailSort>('trail', 'root', 'ended')
+
+function trailValue(trail: Trail, key: TrailSort): number | string {
+  switch (key) {
+    case 'trail':
+      return `${trail.session}#${trail.ref}`
+    case 'steps':
+      return trail.steps.length
+    case 'depth':
+      return trail.depth
+    case 'wide':
+      return trail.breadth
+    case 'paths':
+      return trail.paths
+    case 'back':
+      return trail.revisits
+    case 'root':
+      return trail.root
+    case 'ended':
+      return trail.outcome
+    case 'in':
+      return trail.in_tokens
+    case 'out':
+      return trail.out_tokens
+    case 'time':
+      return trail.ms
+  }
+}
+
 /**
  * Every trail in the project: runs of calls that followed one another into the repository.
  *
@@ -358,6 +467,7 @@ function Trails({
   source?: SourceChoice | null
 }): ReactElement {
   const { data, error } = useData(() => api.trails(slug, source), [slug, read, source])
+  const [sorted, sortBy] = useSort<TrailSort>(trailNatural)
 
   if (error !== null && data === null) return <Problem message={error} />
   if (data === null) return <Loading what="the trails" />
@@ -376,27 +486,42 @@ function Trails({
       <table>
         <thead>
           <tr>
-            <th>Trail</th>
-            <th className="r">Steps</th>
-            <th className="r" title="How far the search went: the longest chain of hops.">
-              Depth
-            </th>
-            <th className="r" title="How far it fanned from a single call. A listing feeding five reads is wide and shallow.">
-              Wide
-            </th>
-            <th className="r">Paths</th>
-            <th className="r" title="Paths it went back to after leaving them.">
-              Back
-            </th>
-            <th>Started from</th>
-            <th>Ended</th>
-            <th className="r">In</th>
-            <th className="r">Out</th>
-            <th className="r">Time</th>
+            <SortHead label="Trail" head="trail" sorted={sorted} onSort={sortBy} />
+            <SortHead label="Steps" head="steps" sorted={sorted} onSort={sortBy} className="r" />
+            <SortHead
+              label="Depth"
+              head="depth"
+              sorted={sorted}
+              onSort={sortBy}
+              className="r"
+              title="How far the search went: the longest chain of hops."
+            />
+            <SortHead
+              label="Wide"
+              head="wide"
+              sorted={sorted}
+              onSort={sortBy}
+              className="r"
+              title="How far it fanned from a single call. A listing feeding five reads is wide and shallow."
+            />
+            <SortHead label="Paths" head="paths" sorted={sorted} onSort={sortBy} className="r" />
+            <SortHead
+              label="Back"
+              head="back"
+              sorted={sorted}
+              onSort={sortBy}
+              className="r"
+              title="Paths it went back to after leaving them."
+            />
+            <SortHead label="Started from" head="root" sorted={sorted} onSort={sortBy} />
+            <SortHead label="Ended" head="ended" sorted={sorted} onSort={sortBy} />
+            <SortHead label="In" head="in" sorted={sorted} onSort={sortBy} className="r" />
+            <SortHead label="Out" head="out" sorted={sorted} onSort={sortBy} className="r" />
+            <SortHead label="Time" head="time" sorted={sorted} onSort={sortBy} className="r" />
           </tr>
         </thead>
         <tbody>
-          {data.trails.map((trail) => (
+          {ordered(data.trails, sorted, trailValue).map((trail) => (
             <tr
               key={`${trail.session}-${trail.ref}`}
               className="row"
@@ -532,6 +657,7 @@ function Tools({
 }): ReactElement {
   const { data, error } = useData(() => api.tools(slug, source), [slug, read, source])
   const [by, setBy] = useState<'command' | 'kind'>('command')
+  const [sorted, sortBy] = useSort<ToolSort>(toolNatural)
 
   if (error !== null && data === null) return <Problem message={error} />
   if (data === null) return <Loading what="the tools" />
@@ -554,20 +680,27 @@ function Tools({
       <table>
         <thead>
           <tr>
-            <th>Tool</th>
-            <th className="r">Calls</th>
-            <th className="r">Errors</th>
-            <th className="r" title="Calls that wrote to stderr or were cut short while the harness reported no error.">
-              Quiet
-            </th>
-            <th className="r">Result</th>
-            <th className="r">Time</th>
+            <SortHead label="Tool" head="tool" sorted={sorted} onSort={sortBy} />
+            <SortHead label="Calls" head="calls" sorted={sorted} onSort={sortBy} className="r" />
+            <SortHead label="Errors" head="errors" sorted={sorted} onSort={sortBy} className="r" />
+            <SortHead
+              label="Quiet"
+              head="quiet"
+              sorted={sorted}
+              onSort={sortBy}
+              className="r"
+              title="Calls that wrote to stderr or were cut short while the harness reported no error."
+            />
+            <SortHead label="Result" head="result" sorted={sorted} onSort={sortBy} className="r" />
+            <SortHead label="Time" head="time" sorted={sorted} onSort={sortBy} className="r" />
           </tr>
         </thead>
         <tbody>
-          {rows.map((row) => [
+          {/* A command stays under the tool it belongs to and sorts among its siblings by the same
+              column, so the twelve shown under a tool are its top twelve by it. */}
+          {ordered(rows, sorted, toolValue).map((row) => [
             <Row key={row.name} row={row} indent={0} />,
-            ...(row.sub ?? [])
+            ...ordered(row.sub ?? [], sorted, toolValue)
               .slice(0, 12)
               .map((child) => <Row key={`${row.name}/${child.name}`} row={child} indent={1} />),
           ])}
@@ -584,6 +717,27 @@ function Tools({
       </p>
     </>
   )
+}
+
+type ToolSort = 'tool' | 'calls' | 'errors' | 'quiet' | 'result' | 'time'
+
+const toolNatural = naturalFor<ToolSort>('tool')
+
+function toolValue(row: ToolRow, key: ToolSort): number | string {
+  switch (key) {
+    case 'tool':
+      return row.name
+    case 'calls':
+      return row.calls
+    case 'errors':
+      return row.errors
+    case 'quiet':
+      return row.quiet
+    case 'result':
+      return row.result_chars
+    case 'time':
+      return row.ms
+  }
 }
 
 function quietTitle(row: ToolRow): string | undefined {

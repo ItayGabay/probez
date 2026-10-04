@@ -8,9 +8,16 @@ import { count, duration, money, percent, shortId, tokens } from '../format'
 import { href, linkProps } from '../router'
 import type { SourceChoice } from '../router'
 import { Info } from './Chrome'
+import { naturalFor, ordered, SortHead, useSort } from './SortHead'
 import { Tip, useTip } from './Tip'
 import { TokenCells, TokenHeaders } from './Tokens'
+import type { TokenSplit } from './Tokens'
 import type { ReactElement, ReactNode } from 'react'
+
+/** Every headed column of the work table, each of which sorts. */
+type WorkSort = 'work' | 'share' | 'tokens' | 'rounds' | 'time' | keyof TokenSplit | 'cost' | 'errors'
+
+const workNatural = naturalFor<WorkSort>('work')
 
 /** Query atoms for "rounds where a tool failed", optionally narrowed by category / round / task / source. */
 export function errorSearchQuery(opts: {
@@ -155,6 +162,7 @@ export function WorkBars({
 }): ReactElement {
   const { tip, show, hide } = useTip()
   const [open, setOpen] = useState<string | null>(null)
+  const [sorted, sortBy] = useSort<WorkSort>(workNatural)
   // Shares are of money; Tokens of input+output. `classified` is still the round count the bars
   // are drawn from, because a bar is a picture of how much work a category was, not of how much
   // it cost or how many tokens it moved.
@@ -176,7 +184,32 @@ export function WorkBars({
 
   const share = (row: CategoryRow): number => (byRounds ? row.rounds / total : row.cost / spent)
 
-  const rows = [...analysis.rows].sort((a, b) => orderOf(a.name) - orderOf(b.name))
+  const value = (row: CategoryRow, key: WorkSort): number | string => {
+    switch (key) {
+      case 'work':
+        return row.label
+      case 'share':
+        return share(row)
+      case 'tokens':
+        return row.in_tokens + row.out_tokens
+      case 'rounds':
+        return row.rounds
+      case 'time':
+        return row.ms
+      case 'cost':
+        return row.cost
+      case 'errors':
+        return row.errors
+      default:
+        return row[key]
+    }
+  }
+  // The categories arrive in the order every chart draws them in, which is the order to go back to.
+  const rows = ordered(
+    [...analysis.rows].sort((a, b) => orderOf(a.name) - orderOf(b.name)),
+    sorted,
+    value,
+  )
   const widest = Math.max(...rows.map((row) => row.rounds))
   const scale = scaleLinear({ domain: [0, widest], range: [0, 100] })
 
@@ -212,49 +245,47 @@ export function WorkBars({
       <table>
         <thead>
           <tr>
-            <th style={{ width: 170 }}>Work</th>
+            <SortHead label="Work" head="work" sorted={sorted} onSort={sortBy} style={{ width: 170 }} />
             <th style={{ width: '18%' }} />
-            <th
+            <SortHead
+              label="Share"
+              head="share"
+              sorted={sorted}
+              onSort={sortBy}
               className="r"
               // The `i` is 17px the header did not have room for, so the column widens to hold it
-              // rather than wrapping "Share" onto two lines.
-              style={{ width: byRounds || thin ? 84 : 66 }}
+              // rather than wrapping "Share" onto two lines. The caret needs room of its own too.
+              style={{ width: byRounds || thin ? 96 : 78 }}
               title={
                 byRounds
                   ? undefined
                   : 'Share of what the classified rounds cost, at the rates in Settings.'
               }
-            >
-              Share
-              {byRounds ? (
-                <Info
-                  says="No round here has a priced model, so there is no cost to divide. These are shares of the classified rounds instead — of how much work a category was, not of what it cost. Set a rate under Settings to get shares of money."
-                  aria="Shares of rounds, not of cost: no round here has a priced model."
-                />
-              ) : thin ? (
-                <UnpricedMark unpriced={analysis.coverage.unpriced} classified={total} />
-              ) : null}
-            </th>
-            <th
+              after={
+                byRounds ? (
+                  <Info
+                    says="No round here has a priced model, so there is no cost to divide. These are shares of the classified rounds instead — of how much work a category was, not of what it cost. Set a rate under Settings to get shares of money."
+                    aria="Shares of rounds, not of cost: no round here has a priced model."
+                  />
+                ) : thin ? (
+                  <UnpricedMark unpriced={analysis.coverage.unpriced} classified={total} />
+                ) : null
+              }
+            />
+            <SortHead
+              label="Tokens"
+              head="tokens"
+              sorted={sorted}
+              onSort={sortBy}
               className="r"
-              style={{ width: 66 }}
+              style={{ width: 78 }}
               title="Share of input + output tokens across classified rounds that recorded usage. Cursor needs the stop hook (`probez hook`) for usage."
-            >
-              Tokens
-            </th>
-            <th className="r" style={{ width: 66 }}>
-              Rounds
-            </th>
-            <th className="r" style={{ width: 66 }}>
-              Time
-            </th>
-            <TokenHeaders />
-            <th className="r" style={{ width: 72 }}>
-              Cost
-            </th>
-            <th className="r" style={{ width: 56 }}>
-              Errors
-            </th>
+            />
+            <SortHead label="Rounds" head="rounds" sorted={sorted} onSort={sortBy} className="r" style={{ width: 78 }} />
+            <SortHead label="Time" head="time" sorted={sorted} onSort={sortBy} className="r" style={{ width: 78 }} />
+            <TokenHeaders sorted={sorted} onSort={sortBy} />
+            <SortHead label="Cost" head="cost" sorted={sorted} onSort={sortBy} className="r" style={{ width: 72 }} />
+            <SortHead label="Errors" head="errors" sorted={sorted} onSort={sortBy} className="r" style={{ width: 68 }} />
           </tr>
         </thead>
         <tbody>
@@ -333,7 +364,7 @@ export function WorkBars({
                 </td>
               </tr>,
               ...(expanded
-                ? (row.sub ?? []).map((child) => (
+                ? ordered(row.sub ?? [], sorted, value).map((child) => (
                     <tr key={`${row.name}/${child.name}`}>
                       <td className="dim" style={{ paddingLeft: 28 }}>
                         {child.label}

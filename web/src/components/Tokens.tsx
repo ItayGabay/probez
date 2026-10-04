@@ -1,4 +1,6 @@
 import { percent, tokens } from '../format'
+import { SortHead } from './SortHead'
+import type { Sorted } from './SortHead'
 import type { ReactElement } from 'react'
 
 /**
@@ -90,15 +92,41 @@ export const TOKEN_COLUMNS: Array<{
   { key: 'out_tokens', label: 'Output', full: 'Tokens the model produced.' },
 ]
 
-/** The five headers, so no table spells them differently from another. */
-export function TokenHeaders({ width = 68 }: { width?: number }): ReactElement {
+/**
+ * The five headers, so no table spells them differently from another.
+ *
+ * Given `onSort`, each one is a sorting heading keyed by its own field, so a table that sorts can
+ * sort by any class of token without spelling the five out again.
+ */
+export function TokenHeaders<K extends string>({
+  width = 68,
+  sorted,
+  onSort,
+}: {
+  width?: number
+  sorted?: Sorted<K> | null
+  onSort?: (key: K) => void
+}): ReactElement {
   return (
     <>
-      {TOKEN_COLUMNS.map((column) => (
-        <th key={column.key} className="r" style={{ width }} title={column.full}>
-          {column.label}
-        </th>
-      ))}
+      {TOKEN_COLUMNS.map((column) =>
+        onSort === undefined ? (
+          <th key={column.key} className="r" style={{ width }} title={column.full}>
+            {column.label}
+          </th>
+        ) : (
+          <SortHead
+            key={column.key}
+            label={column.label}
+            head={column.key as K}
+            sorted={sorted ?? null}
+            onSort={onSort}
+            className="r"
+            style={{ width }}
+            title={column.full}
+          />
+        ),
+      )}
     </>
   )
 }
