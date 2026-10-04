@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process'
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { mkdir, readFile, stat, writeFile } from 'node:fs/promises'
+import { delimiter, dirname, extname, isAbsolute, join } from 'node:path'
 
 /**
  * The one place probez runs anything.
@@ -118,6 +118,87 @@ function firstLine(text: string): string {
   return line === undefined ? '' : line.trim().slice(0, 200)
 }
 
+/** What to spawn in place of a name: a file, and any arguments that have to come before the user's. */
+export interface Located {
+  file: string
+  prefix: string[]
+}
+
+/**
+ * The program an npm `.cmd` shim starts, read out of the shim rather than run through `cmd.exe`.
+ *
+ * Windows will not spawn a batch file without a shell, and most of what people would name here —
+ * `claude`, `codex`, `gemini` — is installed by npm as exactly that: a few lines of batch whose only
+ * job is to start a `.exe` or `node <script>` with `%*` after it. Reading that one line and
+ * spawning what it names keeps the reader argv-only, which a shell would not.
+ *
+ * Only the shapes npm writes are understood. Anything else — a variable this does not know, a line
+ * with no `%*` — is null, and the caller says so rather than guessing at a batch file.
+ */
+export function shimTarget(text: string, shimDir: string, node: string): Located | null {
+  const line = text.split(/\r?\n/).find((one) => one.includes('%*') && one.includes('"'))
+  if (line === undefined) return null
+  const dir = shimDir.endsWith('\\') || shimDir.endsWith('/') ? shimDir : `${shimDir}\\`
+  const parts: string[] = []
+  for (const [, quoted] of line.matchAll(/"([^"]*)"/g)) {
+    if (quoted === '%_prog%') {
+      parts.push(node)
+      continue
+    }
+    const filled = quoted!.replace(/%dp0%\\?|%~dp0\\?/gi, dir)
+    if (filled.includes('%')) return null
+    parts.push(filled)
+  }
+  if (parts.length === 0) return null
+  return { file: parts[0]!, prefix: parts.slice(1) }
+}
+
+async function isFile(path: string): Promise<boolean> {
+  try {
+    return (await stat(path)).isFile()
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Find what a reader's program name means on Windows, the way `cmd.exe` would, without one.
+ *
+ * `spawn` with no shell takes `claude` literally and finds nothing, because what is on PATH is
+ * `claude.cmd`. So the name is looked up across PATH and PATHEXT here, an `.exe` is spawned by its
+ * full path, and an npm shim is read for the program it starts. Null means nothing was found and
+ * the spawn goes ahead with the name as given, which is what reports it missing.
+ */
+export async function locateOnWindows(
+  program: string,
+  env: NodeJS.ProcessEnv,
+): Promise<Located | null> {
+  const exts = (env.PATHEXT ?? '.COM;.EXE;.BAT;.CMD').split(';').filter((one) => one !== '')
+  const given = extname(program) !== ''
+  const dirs =
+    isAbsolute(program) || program.includes('\\') || program.includes('/')
+      ? ['']
+      : (env.PATH ?? env.Path ?? '').split(delimiter).filter((one) => one !== '')
+
+  for (const dir of dirs) {
+    for (const ext of given ? [''] : exts) {
+      const path = dir === '' ? program + ext : join(dir, program + ext)
+      if (!(await isFile(path))) continue
+      const kind = extname(path).toLowerCase()
+      if (kind !== '.cmd' && kind !== '.bat') return { file: path, prefix: [] }
+      const target = shimTarget(await readFile(path, 'utf8'), dirname(path), process.execPath)
+      if (target === null) {
+        throw new ReaderError(
+          `\`${program}\` is a batch file (${path}) that probez cannot read the program out of, and ` +
+            'it runs nothing through a shell; name the .exe or the script it starts instead',
+        )
+      }
+      return target
+    }
+  }
+  return null
+}
+
 /**
  * Run the reader over one prompt and hand back what it printed.
  *
@@ -127,10 +208,19 @@ function firstLine(text: string): string {
  * the environment, which is how `claude -p` and its like find their own credentials — probez holds
  * no key and has nowhere to put one.
  */
-export function runReader(config: ReaderConfig, prompt: string): Promise<string> {
+export async function runReader(config: ReaderConfig, prompt: string): Promise<string> {
+  const [named, ...rest] = config.command
+  let program = named!
+  let argv = rest
+  if (process.platform === 'win32') {
+    const found = await locateOnWindows(named!, process.env)
+    if (found !== null) {
+      program = found.file
+      argv = [...found.prefix, ...rest]
+    }
+  }
   return new Promise((ok, fail) => {
-    const [program, ...argv] = config.command
-    const child = spawn(program!, argv, {
+    const child = spawn(program, argv, {
       stdio: ['pipe', 'pipe', 'pipe'],
       shell: false,
       env: process.env,
@@ -183,7 +273,7 @@ export function runReader(config: ReaderConfig, prompt: string): Promise<string>
       finish(
         new ReaderError(
           error.code === 'ENOENT'
-            ? `there is no \`${program}\` on this machine's PATH`
+            ? `there is no \`${named}\` on this machine's PATH`
             : `\`${readerName(config)}\` could not be run: ${error.message}`,
         ),
       )
