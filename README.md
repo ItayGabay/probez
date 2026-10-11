@@ -85,6 +85,10 @@ input was fresh, what it cost, and what the same tokens would have cost as cache
 **Explorer**, the query page below. Import and Settings sit at the foot of the menu, beside when
 the store was last synced.
 
+<p align="center">
+  <img src="docs/view-overview.png" alt="probez view: the Overview, with spend against the period before, spend by day and by model, and the top findings" width="900">
+</p>
+
 **One scope, everywhere.** The bar across the top holds a time range (7, 30 or 90 days, or all
 time), an agent and a project, and they live in the URL — a link you send opens on the same thirty
 days of the same agent. Every Insights chart and Investigate list under it is drawn from the same
@@ -102,12 +106,20 @@ over as the query that asks the same thing; its title shows the query, and says 
 has no field to carry it. Tables lead with cost; the cache-write columns are one click away under
 **Token detail**, and the choice is remembered.
 
+<p align="center">
+  <img src="docs/view-sessions.png" alt="probez view: every session across the store, costliest first, with one open in the drawer" width="900">
+</p>
+
 **Findings** ranks what probez already measures by what it cost: sessions that spent over 40% of
 their cost on reconstruction, tasks whose context went over 80% of the window, questions asked again,
 trails that changed nothing, failed tool calls, and rounds on a model with no rate. Severity is a
 finding's cost as a share of the spend in scope — high from 5%, medium from 1% — and each names the
 line it was drawn at. The two lines are yours: **Settings › Findings**, stored in
 `~/.probez/findings.json` beside the rates.
+
+<p align="center">
+  <img src="docs/view-findings.png" alt="probez view: findings ranked by what they cost, each with the line it was drawn at" width="900">
+</p>
 
 Below the lists, the levels are as they were: a project, then a session, then a task, down to a
 single tool call. Opening a session or a task folds the menu to its icons, so the trace gets the

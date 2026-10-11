@@ -9,6 +9,7 @@ import type { Scope } from '../scope'
 import type { SourceChoice } from '../source'
 import { useData } from '../useData'
 import { HBars, ShareStack } from './Charts'
+import { Reading } from './Chrome'
 import { Drawer, DrawerFacts } from './Drawer'
 import { OpenInExplorer } from './OpenInExplorer'
 
@@ -99,7 +100,7 @@ export function ProjectDrawer({
       <div className="drawer-sec">
         <h4>Work mix · share of cost</h4>
         {data === null ? (
-          <p className="note">Reading…</p>
+          <Reading />
         ) : workCost <= 0 ? (
           <p className="note">No priced round here, so there is no cost to divide.</p>
         ) : (
@@ -140,7 +141,7 @@ export function ProjectDrawer({
       <div className="drawer-sec">
         <h4>Costliest sessions</h4>
         {top === null ? (
-          <p className="note">Reading…</p>
+          <Reading />
         ) : top.length === 0 ? (
           <p className="note">No session here.</p>
         ) : (

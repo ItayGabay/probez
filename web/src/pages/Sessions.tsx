@@ -4,7 +4,7 @@ import type { ReactElement } from 'react'
 import { api } from '../api'
 import type { StoreSession, Thresholds } from '../api'
 import { styleOf } from '../categories'
-import { Chrome, Loading, Problem } from '../components/Chrome'
+import { Chrome, Loading, Problem, Reading } from '../components/Chrome'
 import { ShareStack } from '../components/Charts'
 import { Drawer, DrawerFacts } from '../components/Drawer'
 import { OpenInExplorer } from '../components/OpenInExplorer'
@@ -498,7 +498,7 @@ function SessionDrawer({
       <div className="drawer-sec">
         <h4>Trace</h4>
         {trace === null ? (
-          <div className="thumb" aria-hidden />
+          <Reading />
         ) : (
           <div className="thumb" role="img" aria-label={`${trace.rounds.length} rounds, coloured by the kind of work each was`}>
             {trace.rounds.map((round) => {
@@ -543,7 +543,7 @@ function SessionDrawer({
       <div className="drawer-sec">
         <h4>Costliest questions</h4>
         {questions === null ? (
-          <p className="note">Reading…</p>
+          <Reading />
         ) : questions.length === 0 ? (
           <p className="note">This session asked nothing of the code.</p>
         ) : (

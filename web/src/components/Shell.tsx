@@ -7,6 +7,7 @@ import { href, linkProps } from '../router'
 import type { Route } from '../router'
 import { scoped, useScope } from '../scope'
 import type { Scope } from '../scope'
+import { useBusy } from '../pending'
 import { useData } from '../useData'
 
 /**
@@ -48,8 +49,11 @@ export function Shell({ route, children }: { route: Route; children: ReactNode }
     })
   }
 
+  const busy = useBusy()
+
   return (
     <div className={narrow ? 'app narrow' : 'app'}>
+      {busy ? <div className="loadbar" role="progressbar" aria-label="Reading" /> : null}
       <Rail route={route} narrow={narrow} onToggle={toggle} />
       <div className="col">{children}</div>
     </div>
