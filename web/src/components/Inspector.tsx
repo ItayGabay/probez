@@ -5,6 +5,7 @@ import type { Label, ResultPayload, RoundPayload, ToolCall } from '../api'
 import { orderOf, styleOf } from '../categories'
 import { failed } from '../errors'
 import { duration, percent, shortModel, tokens, when } from '../format'
+import { Spinner } from './Chrome'
 import type { ReactElement } from 'react'
 
 /**
@@ -87,7 +88,10 @@ export function Inspector({
   if (payload === null) {
     return (
       <div className="inspector">
-        <div className="inspector-body note">Reading round {round}…</div>
+        <div className="inspector-body note loading" role="status">
+          <Spinner />
+          Reading round {round}…
+        </div>
       </div>
     )
   }
