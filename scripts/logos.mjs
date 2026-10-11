@@ -235,6 +235,25 @@ function resize(image, width, height) {
 }
 
 /**
+ * Centre the drawing in a square of transparency.
+ *
+ * Trimming leaves the mark in a box as wide as its swoosh and as tall as its ring, which is not a
+ * square; resizing that straight to a square icon stretched the ring into an upright oval. Padding
+ * the short side first keeps the ring round at any size.
+ */
+function square(image) {
+  const side = Math.max(image.width, image.height)
+  const left = Math.floor((side - image.width) / 2)
+  const top = Math.floor((side - image.height) / 2)
+  const pixels = Buffer.alloc(side * side * 4)
+  for (let y = 0; y < image.height; y += 1) {
+    const start = y * image.width * 4
+    image.pixels.copy(pixels, ((top + y) * side + left) * 4, start, start + image.width * 4)
+  }
+  return { width: side, height: side, channels: 4, pixels }
+}
+
+/**
  * Repaint the wordmark for a dark surface, leaving the mark alone.
  *
  * The wordmark is one flat navy (#051f44) and the mark is saturated blue, so the two separate on
@@ -265,7 +284,7 @@ const dark = DERIVE_DARK
   ? repaint(light, [246, 246, 244])
   : trim(toRgba(decode(join(from, 'probez-logo-dark.png'))))
 
-const icon = trim(toRgba(decode(join(from, 'probez-icon.png'))))
+const icon = square(trim(toRgba(decode(join(from, 'probez-icon.png')))))
 
 /**
  * The README's logo is a third file, and a different design problem.

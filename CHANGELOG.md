@@ -38,6 +38,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html). It is pub
   how full a context got, a re-asked question, how a trail ended — is named in the button's title
   rather than dropped silently, and the button is marked ≈.
 - A project's path shows under its name in the projects list again; it had been clipped to nothing.
+- **A loader for slow reads.** A read that is still going after a quarter of a second draws a thin
+  bar along the top of the page, whatever asked for it — a page, a scope change, a drawer — and a
+  page or drawer section with nothing to show yet gets a spinner beside what it is reading. A read
+  that finishes sooner shows nothing, so a fast page does not flash.
+- The menu's icon, shown when the menu is folded, is round again. It had been stretched into an
+  upright oval: `npm run logos` trimmed the mark to its drawing, which is wider than it is tall,
+  and resized that straight to a square. It is now padded to a square first.
+- README screenshots of Overview, Sessions with its drawer and Findings, and new ones of Explorer,
+  a project and a session, taken from a demo store built from the test fixtures.
 - **A session's subagents fold under it** in every sessions table, closed until opened. Cursor's
   `<uuid>/<uuid>` session ids are matched to their subagents too.
 - `GET /api/insights`, `/api/sessions`, `/api/questions`, `/api/trails` and `/api/findings`, each

@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react'
 
+import { track } from './pending'
+
 /**
  * One fetch, with the two states a page has to draw besides the answer.
  *
@@ -23,7 +25,7 @@ export function useData<T>(
     let live = true
     setLoading(true)
     setError(null)
-    load()
+    track(load())
       .then((value) => {
         if (!live) return
         setData(value)

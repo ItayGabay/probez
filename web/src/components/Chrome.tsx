@@ -168,8 +168,31 @@ function Theme(): ReactElement {
   )
 }
 
+/**
+ * A page with nothing to show yet. It stays blank for a moment and only then says it is reading,
+ * since most reads are done before a spinner would have been worth looking at.
+ */
 export function Loading({ what }: { what: string }): ReactElement {
-  return <div className="center">Reading {what}…</div>
+  return (
+    <div className="center loading" role="status">
+      <Spinner />
+      Reading {what}…
+    </div>
+  )
+}
+
+export function Spinner(): ReactElement {
+  return <span className="spinner" aria-hidden />
+}
+
+/** The same, for a section of a drawer or a card rather than a whole page. */
+export function Reading(): ReactElement {
+  return (
+    <p className="note loading" role="status">
+      <Spinner />
+      Reading…
+    </p>
+  )
 }
 
 export function Problem({ message }: { message: string }): ReactElement {
