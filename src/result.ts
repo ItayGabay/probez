@@ -77,6 +77,28 @@ function resultIn(record: Json, toolUseId: string): Json | null {
   return null
 }
 
+/** Every call id this record holds a result for, in the two shapes `resultIn` reads. */
+function resultIds(record: Json): string[] {
+  const out: string[] = []
+  const message = record.message
+  if (message !== null && typeof message === 'object') {
+    const content = (message as Json).content
+    if (Array.isArray(content)) {
+      for (const block of content) {
+        if (block === null || typeof block !== 'object') continue
+        const it = block as Json
+        if (it.type === 'tool_result' && typeof it.tool_use_id === 'string') out.push(it.tool_use_id)
+      }
+    }
+  }
+  const payload =
+    record.type === 'response_item' && record.payload !== null && typeof record.payload === 'object'
+      ? (record.payload as Json)
+      : record
+  if (payload.type === 'function_call_output' && typeof payload.call_id === 'string') out.push(payload.call_id)
+  return out
+}
+
 /**
  * Flatten a result's content to text, naming what could not be flattened.
  *
@@ -164,8 +186,11 @@ export async function readToolResults(
       } catch {
         continue
       }
-      for (const id of ids) {
-        if (out.has(id) || !line.includes(id)) continue
+      // The ids come out of the record and are looked up in the set, never the other way round:
+      // searching a line for every wanted id costs ids × bytes, which on a store of a few thousand
+      // calls and a few hundred megabytes of sessions is minutes.
+      for (const id of resultIds(record)) {
+        if (out.has(id) || !ids.has(id)) continue
         const found = resultIn(record, id)
         if (found === null) continue
         out.set(id, fold(found, cap).body)

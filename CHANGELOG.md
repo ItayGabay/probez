@@ -17,6 +17,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html). It is pub
   the view) now removes those too, along with a first collect that died before writing its
   manifest, and the plan says how many of them it is taking. `--before` and `clear <project>`
   still touch only what they can read.
+- **Findings no longer hangs on a large project.** Reading result bodies back out of the archived
+  sessions searched every line once for every call wanted, which costs calls × bytes: on a project
+  of 3,600 calls and 228 MB of sessions that was 82 seconds, and Findings waited on all of it. The
+  ids are now read out of each line and looked up, which returns the same bodies in under a second.
+  Findings over that store went from 84 s to 2 s; the trails pages, a task's trails and
+  `--deep` reads share the reader and speed up with it.
 
 ## [0.8.0] - 2026-10-13
 
