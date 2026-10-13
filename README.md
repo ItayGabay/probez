@@ -917,7 +917,8 @@ $ probez clear --before 14d
 **A session is the unit.** One whose last round is older than the window goes entirely, with the
 archived transcript beside it; one with any newer round stays whole. So a project you still work in
 keeps its recent work and gives up the rest, and a project you have not touched in months goes.
-`probez clear --all` takes everything; `probez clear <project>` takes one.
+`probez clear --all` takes everything, including projects an older probez collected that this one can
+no longer read, which no other command lists; `probez clear <project>` takes one.
 
 **Nothing acts on the first press.** The plan above is printed and then asked about, and with no
 terminal to ask on — a pipe, a CI job — it refuses rather than assuming, so `--yes` is how a script

@@ -100,7 +100,9 @@ of it and they go through the same fence.
 
 **Delete** removes one project's directory from the store — its rounds, the session copies beside
 them, the analysis cache and the manifest. **Clear** removes many: `probez clear --all`, or the
-danger zone's *clear the whole store*, takes every project; `probez clear --before 30d`, or *trim
+danger zone's *clear the whole store*, takes every project, and every other directory under
+`projects/` that this probez cannot read, such as one an older version collected;
+`probez clear --before 30d`, or *trim
 old history*, takes every **session** whose last round is older than the window, along with the
 archived transcript beside it, and removes any project left with nothing. A session with any newer
 round is kept whole, so a project you still work in keeps its recent work.

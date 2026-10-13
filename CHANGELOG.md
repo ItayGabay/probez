@@ -8,6 +8,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html). It is pub
 
 ## [Unreleased]
 
+## [0.8.1] - 2026-10-13
+
 ### Fixed
 
 - **`probez clear --all` takes everything in the store, including what it cannot read.** A project
@@ -1949,7 +1951,8 @@ First release.
   above them. Errors, result size and time belong to the call, which has one result and one
   duration, so every command in a multi-command call is charged the whole of it.
 
-[Unreleased]: https://github.com/flowzhq/probez/compare/v0.8.0...HEAD
+[Unreleased]: https://github.com/flowzhq/probez/compare/v0.8.1...HEAD
+[0.8.1]: https://github.com/flowzhq/probez/compare/v0.8.0...v0.8.1
 [0.8.0]: https://github.com/flowzhq/probez/compare/v0.7.3...v0.8.0
 [0.7.3]: https://github.com/flowzhq/probez/compare/v0.7.2...v0.7.3
 [0.7.2]: https://github.com/flowzhq/probez/compare/v0.7.1...v0.7.2
