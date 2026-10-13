@@ -2153,6 +2153,11 @@ function printPlan(plan: ClearPlan, width: number): void {
     `${bytes(totals.bytes)} freed`,
   ]
   for (const line of wrap(parts.join(' · '), width)) console.log(`  ${line}`)
+  const unreadable = plan.projects.filter((one) => one.unreadable === true).length
+  if (unreadable > 0) {
+    const note = `${unreadable} of them ${unreadable === 1 ? 'is' : 'are'} left from an older probez or an interrupted collect, which no other command can read.`
+    for (const line of wrap(note, width)) console.log(`  ${line}`)
+  }
   console.log('')
   console.log("  The agent's own session files are not touched, so `probez collect` brings back")
   console.log('  whatever the agent still has. An imported project does not come back.')

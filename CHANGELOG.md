@@ -8,6 +8,22 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html). It is pub
 
 ## [Unreleased]
 
+### Fixed
+
+- **`probez clear --all` takes everything in the store, including what it cannot read.** A project
+  collected by an older probez is rebuilt by the next `collect` only while the agent still has its
+  transcripts. Once those were pruned, no command listed it and `clear --all` skipped it, so it sat
+  on disk for good: 289 MB of them in one store. A clear of everything (from the command or from
+  the view) now removes those too, along with a first collect that died before writing its
+  manifest, and the plan says how many of them it is taking. `--before` and `clear <project>`
+  still touch only what they can read.
+- **Findings no longer hangs on a large project.** Reading result bodies back out of the archived
+  sessions searched every line once for every call wanted, which costs calls × bytes: on a project
+  of 3,600 calls and 228 MB of sessions that was 82 seconds, and Findings waited on all of it. The
+  ids are now read out of each line and looked up, which returns the same bodies in under a second.
+  Findings over that store went from 84 s to 2 s; the trails pages, a task's trails and
+  `--deep` reads share the reader and speed up with it.
+
 ## [0.8.0] - 2026-10-13
 
 0.7.3 was tagged but never reached npm, so its changes, listed under it below, are published for
