@@ -230,6 +230,40 @@ test('clearing everything takes every project and leaves the settings beside the
   assert.ok(existsSync(join(dataDir, 'reader.json')), 'the reader went with the projects')
 })
 
+test('clearing everything also takes what this probez cannot read', async () => {
+  const now = Date.now()
+  const dataDir = store([round('a', now - 1 * DAY)])
+  // A project an older probez collected, whose transcripts the agent has since pruned, so no
+  // collect will ever rebuild it; and a first collect that died before writing its manifest.
+  const old = join(dataDir, 'projects', 'old-11112222')
+  mkdirSync(join(old, 'sessions'), { recursive: true })
+  writeFileSync(join(old, 'manifest.json'), JSON.stringify({ schema_version: 1, project: 'old', sessions: 3, rounds: 40 }))
+  writeFileSync(join(old, 'rounds.jsonl'), 'x'.repeat(2000))
+  const half = join(dataDir, 'projects', 'half-33334444')
+  mkdirSync(join(half, 'sessions'), { recursive: true })
+  writeFileSync(join(half, 'sessions', 's.jsonl'), 'x'.repeat(100))
+
+  // Neither is listed, so neither a window nor a name can reach them.
+  assert.equal((await listStored(dataDir)).length, 1)
+  assert.equal((await planClear(dataDir, { before: now })).projects.some((one) => one.unreadable), false)
+  assert.equal((await planClear(dataDir, { slug: 'old-11112222' })).totals.projects, 0)
+
+  const plan = await planClear(dataDir, { before: null })
+  assert.deepEqual(plan.projects.map((one) => one.slug).sort(), ['demo-abcd1234', 'half-33334444', 'old-11112222'])
+  const oldPlan = plan.projects.find((one) => one.slug === 'old-11112222')
+  assert.equal(oldPlan?.unreadable, true)
+  assert.equal(oldPlan?.project, 'old')
+  assert.equal(oldPlan?.rounds, 40)
+  assert.ok((oldPlan?.bytes ?? 0) >= 2000)
+
+  const done = await applyClear(dataDir, plan)
+  assert.equal(done.whole, 3)
+  assert.equal(done.rounds, 41)
+  assert.equal(existsSync(old), false)
+  assert.equal(existsSync(half), false)
+  assert.equal(existsSync(projectDirOf(dataDir)), false)
+})
+
 test('a plan naming something outside the store cannot reach it', async () => {
   const now = Date.now()
   const dataDir = store([round('a', now - 1 * DAY)])
@@ -244,8 +278,10 @@ test('a plan naming something outside the store cannot reach it', async () => {
     projects: [
       { slug: '../../../../etc', project: 'x', dir: outside, sessions: 1, ids: [], rounds: 1, bytes: 0, whole: true },
       { slug: 'no such slug!', project: 'y', dir: outside, sessions: 1, ids: [], rounds: 1, bytes: 0, whole: true },
+      // An unreadable one skips the manifest read, not the fence.
+      { slug: '..', project: 'z', dir: outside, sessions: 1, ids: [], rounds: 1, bytes: 0, whole: true, unreadable: true },
     ],
-    totals: { projects: 2, whole: 2, sessions: 2, rounds: 2, bytes: 0 },
+    totals: { projects: 3, whole: 3, sessions: 3, rounds: 3, bytes: 0 },
   })
   assert.equal(done.projects, 0)
   assert.ok(existsSync(join(outside, 'precious.txt')))

@@ -1267,6 +1267,11 @@ export interface ClearPlanProject {
   bytes: number
   /** True when nothing would survive, so the project is removed rather than trimmed. */
   whole: boolean
+  /**
+   * A directory this probez cannot read: a manifest of another schema, or none at all. Only a
+   * clear of everything plans these, and always whole, since there is nothing to trim them by.
+   */
+  unreadable?: true
 }
 
 /** Every byte under a directory, for saying what a removal actually frees. */
@@ -1307,6 +1312,37 @@ async function sessionAges(dir: string): Promise<Map<string, number>> {
     if (!last.has(id)) last.set(id, one.mtimeMs)
   }
   return last
+}
+
+/**
+ * Every directory under `projects/` that `listStored` passes over, as a whole removal.
+ *
+ * Mostly projects collected by an older probez. `collect` rebuilds those from their session copies,
+ * but only while the agent's own transcripts still exist; once the agent has pruned them, nothing
+ * rebuilds the project, nothing lists it, and without this nothing could remove it either. It also
+ * catches a first collect that died before it wrote a manifest.
+ */
+async function unreadableProjects(dataDir: string, readable: Set<string>): Promise<ClearPlanProject[]> {
+  const entries = await readdir(join(dataDir, 'projects'), { withFileTypes: true }).catch(() => [])
+  const found: ClearPlanProject[] = []
+  for (const entry of entries) {
+    if (!entry.isDirectory() || readable.has(entry.name)) continue
+    const dir = ownDir(dataDir, entry.name)
+    if (dir === null) continue
+    const manifest = await readJson<Manifest>(join(dir, 'manifest.json'))
+    found.push({
+      slug: entry.name,
+      project: manifest?.project ?? entry.name,
+      dir,
+      sessions: manifest?.sessions ?? 0,
+      ids: [],
+      rounds: manifest?.rounds ?? 0,
+      bytes: await dirSize(dir),
+      whole: true,
+      unreadable: true,
+    })
+  }
+  return found
 }
 
 /**
@@ -1380,6 +1416,12 @@ export async function planClear(
     })
   }
 
+  // Everything means everything, including what this probez can no longer read. A window cannot
+  // date these and a name cannot reach them, so only a clear of everything takes them.
+  if (before === null && options.slug === undefined) {
+    projects.push(...(await unreadableProjects(dataDir, new Set(stored.map((row) => row.slug)))))
+  }
+
   return {
     before,
     projects,
@@ -1425,6 +1467,20 @@ export async function applyClear(dataDir: string, plan: ClearPlan): Promise<Clea
   for (const one of plan.projects) {
     const dir = ownDir(dataDir, one.slug)
     if (dir === null) continue
+
+    // `removeProject` reads the manifest to report what went, and these have none it can read.
+    // The plan's figures are all there is, and the fence above is the same one it applies.
+    if (one.whole && one.unreadable === true) {
+      if (!(await stat(dir).then(() => true, () => false))) continue
+      await rm(dir, { recursive: true, force: true })
+      result.projects += 1
+      result.whole += 1
+      result.sessions += one.sessions
+      result.rounds += one.rounds
+      result.bytes += one.bytes
+      result.removed.push(one.project)
+      continue
+    }
 
     if (one.whole) {
       const gone = await removeProject(dataDir, one.slug)
