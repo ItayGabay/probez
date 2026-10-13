@@ -85,10 +85,10 @@ ways:
 leaves the store byte-identical, and there is a test that asserts exactly that. Pressing **Sync**
 writes, because that is what it is for: it runs `collect` and then rebuilds the analysis cache, the
 same two things the commands of those names do. **Rename** rewrites one field of one manifest.
-**Delete** removes one project's directory. Saving under **Settings** writes the rate table and the
-reader, **Explain** writes what a reader answered about one question, naming a command writes
-`commands.json`, the **danger zone** removes projects, and **Import** writes a new project. Those
-nine are the only writes the view can make.
+**Delete** removes one project's directory. Saving under **Settings** writes the rate table, the
+reader and the findings thresholds, **Explain** writes what a reader answered about one question,
+naming a command writes `commands.json`, the **danger zone** removes projects, and **Import** writes
+a new project. Those ten are the only writes the view can make.
 
 Those buttons change what the token protects. Before them, the token and the `Host` check stood
 between a page you did not open and *reading* your prompts; now they also stand between it and
@@ -265,7 +265,11 @@ and is the only thing the view's Settings screen can change. `POST /api/pricing`
 token and a matching `Host` like `sync` does, and it accepts a JSON body of at most 64 KB whose every
 field must be a non-negative number before anything is saved. `reader.json` sits beside it and holds
 the command above, under the same mode and the same checks; `POST /api/reader` takes the argv as a
-list and stores it as one, so nothing is ever re-parsed into a shell line.
+list and stores it as one, so nothing is ever re-parsed into a shell line. `findings.json` holds the
+two lines the Findings page draws at, a reconstruction share and a context share. `POST
+/api/thresholds` takes the same token, `Host` check and 64 KB cap, and refuses anything but two
+numbers strictly between 0 and 1 rather than clamping it. Nothing in the file is a path, a name or a
+command; the worst a wrong value does is list more findings or fewer.
 
 **What probez removes.** Only two things, both its own derived files. When `collect` meets a store
 written by an older probez it rebuilds `rounds.jsonl` from the session copies — writing a temporary

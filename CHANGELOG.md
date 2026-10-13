@@ -8,6 +8,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html). It is pub
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-10-13
+
+0.7.3 was tagged but never reached npm, so its changes, listed under it below, are published for
+the first time with this version.
+
 ### Added
 
 - **The view has a menu, split into Insights and Investigate.** People open probez to ask what their
@@ -1928,7 +1933,8 @@ First release.
   above them. Errors, result size and time belong to the call, which has one result and one
   duration, so every command in a multi-command call is charged the whole of it.
 
-[Unreleased]: https://github.com/flowzhq/probez/compare/v0.7.3...HEAD
+[Unreleased]: https://github.com/flowzhq/probez/compare/v0.8.0...HEAD
+[0.8.0]: https://github.com/flowzhq/probez/compare/v0.7.3...v0.8.0
 [0.7.3]: https://github.com/flowzhq/probez/compare/v0.7.2...v0.7.3
 [0.7.2]: https://github.com/flowzhq/probez/compare/v0.7.1...v0.7.2
 [0.7.1]: https://github.com/flowzhq/probez/compare/v0.7.0...v0.7.1
