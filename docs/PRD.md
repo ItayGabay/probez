@@ -619,6 +619,58 @@ because both read a run of calls across a whole project and neither can be answe
 that matched. It is derived data in the strict sense: missing, stale, from an unknown version and
 half-written all mean the same thing, which is read the rounds, and the result says how many
 projects had to.
+
+## v0.8 · Insights and Investigate
+
+**Two questions, two places to answer them.** Until 0.8 the view was one drill-down path, from the
+projects list to a round, and the first figure a person saw was a count of projects. Money first
+appeared one level down, and trends existed only as a tab on one project. But people open probez
+for one of two reasons: *where did the money go*, asked weekly and across everything, and *why did
+this one cost so much*, asked when a number looks wrong. So the view now opens on a menu split into
+those two questions.
+
+```
+/                       Insights › Overview       spend, input, cache share, cost per task; top findings
+/spend                  Insights › Spend          cost over time, split by project, model, agent or work
+/cache                  Insights › Tokens & cache fresh input, and what it cost against cache reads
+/context                Insights › Context        peak occupancy, tasks over the line, compactions
+/findings               Investigate › Findings    what went nowhere, ranked by what it cost
+/projects               Investigate › Projects    the list that used to be /
+/sessions, /questions,  Investigate               the per-project tabs, lifted to the whole store
+/trails
+/explorer               Investigate › Explorer    the search page, unchanged; /search still answers
+```
+
+The project, session and task pages under them are the levels v0.2 built, unchanged in substance.
+
+Four decisions in it are worth recording, because each had an alternative:
+
+- **One scope, in the URL.** A time range, an agent and a project sit in a bar across the top and
+  apply to every page under it. They replace a Source control that filtered one page and a range
+  picker that belonged to one chart. A link opens on the scope it was sent with.
+
+- **Every number opens a list, through the query language.** A day, a model, a kind of work or a
+  finding lands on Sessions, Questions or Trails filtered to it, and *Open in Explorer* hands the
+  same filter over as a query. The lists and the search page compile to one engine, so they cannot
+  disagree about which rounds a filter means.
+
+- **Findings are ranked by money, and two of their lines are settings.** Every finding is a signal
+  probez already measured: reconstruction share, context occupancy, a question asked again, a trail
+  that changed nothing, a failed call, an unpriced model. Two are a matter of degree, so they need a
+  line, and where to draw it is a judgement about someone's own work. They default to 40% of a
+  session's cost on reconstruction and 80% of the context window, are changed under
+  `/settings/findings`, are kept in `~/.probez/findings.json` beside the rates, and every finding
+  names the line it was drawn at.
+
+- **Cost leads, token detail is one click away.** Tables open on cost, share, rounds, input, cache
+  share and output. The cache-write columns are under *Token detail*, and the choice is remembered.
+  A reader who wants them has them; a reader who does not is not asked to scan twelve columns for
+  the one that answers the question.
+
+**What it does not do.** Findings judge nothing the analyzer cannot measure. A session that spent
+half its money on reconstruction may have needed to; the page says where the money went and leaves
+the verdict to the person who knows what was asked. Intent-aware analysis is what would let it say
+more, and it is the next step rather than part of this one.
 ## Agent source as a dimension
 
 The project boundary is the checkout. Claude Code, Cursor, Codex, Copilot CLI, Visual Studio
@@ -627,7 +679,7 @@ product wrote the session. `--source` on collect
 selects which directories to scan. On read commands it filters stored rounds and is not passed
 through to discovery. `source:claude` matches persisted `claude-code`. A sniff that does not
 recognise the transcript, or an import with no field, is `unknown` — never assumed Claude. The
-view's Source control filters the page you are on and does not change what Sync collects.
+agent in the view's scope bar filters what the pages show and does not change what Sync collects.
 Typing `source:` in the query bar is still a search.
 
 ## Clearing, and the shape a destructive operation has to have
