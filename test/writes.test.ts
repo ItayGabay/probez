@@ -100,6 +100,22 @@ test('a lock left by a process that is gone does not hold anything up', async ()
   assert.equal(existsSync(join(dir, 'write.lock')), false)
 })
 
+test('writers racing to take over the same abandoned lock still go one at a time', async () => {
+  const dataDir = store()
+  const { slug, dir } = await project(dataDir)
+  writeFileSync(join(dir, 'write.lock'), String(await gonePid()))
+  // Each would rewrite rounds.jsonl from what it read; two at once would leave only one's rounds.
+  const merges = ['a', 'b', 'c', 'd'].map((name) =>
+    mergeIntoProject(dataDir, slug, [round({ session: `s-${name}`, id: name, committer: 'Dana' })], 0),
+  )
+  const results = await Promise.all(merges)
+  assert.deepEqual(results.map((one) => one?.added), [1, 1, 1, 1])
+  assert.equal(lineCount(join(dir, 'rounds.jsonl')), 6)
+  assert.equal(lineCount(join(dir, MERGED_FILE)), 4)
+  assert.equal(existsSync(join(dir, 'write.lock')), false)
+  assert.equal(existsSync(join(dir, 'write.lock.takeover')), false)
+})
+
 // The merge writes its copy before the rounds, so this is the state a cut-short merge leaves. The
 // other order left the rounds written and the copy not, which merging again could not see to repair.
 test('a merge cut short is repaired by merging the same file again', async () => {

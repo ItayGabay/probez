@@ -38,20 +38,24 @@ function withSource(path: string, source?: string | null): string {
 }
 
 /**
- * Requests still on their way, by path.
+ * Requests still on their way, by path, and how many writes had begun or ended when each was sent.
  *
  * A page and the shell around it often ask for the same thing at once (the Overview and the
  * sidebar both load `/findings` for the same scope), and on a big store each of those is seconds of
- * work on the server. A second ask while the first is in flight waits for that one. Only while it
- * is in flight: a later ask is a fresh request, so nothing here can serve a stale answer.
+ * work on the server. A second ask while the first is in flight waits for that one, but only when
+ * no write has started or finished since it was sent. A list re-read after a delete must not be
+ * answered by a request made before it.
  */
-const inFlight = new Map<string, Promise<unknown>>()
+const inFlight = new Map<string, { writes: number; request: Promise<unknown> }>()
+let writes = 0
 
 function get<T>(path: string): Promise<T> {
   const pending = inFlight.get(path)
-  if (pending !== undefined) return pending as Promise<T>
-  const request = fetchJson<T>(path).finally(() => inFlight.delete(path))
-  inFlight.set(path, request)
+  if (pending !== undefined && pending.writes === writes) return pending.request as Promise<T>
+  const request = fetchJson<T>(path).finally(() => {
+    if (inFlight.get(path)?.request === request) inFlight.delete(path)
+  })
+  inFlight.set(path, { writes, request })
   return request
 }
 
@@ -752,6 +756,9 @@ async function postFile<T>(path: string, file: File, committer?: string): Promis
 }
 
 async function send<T>(path: string, headers: HeadersInit, body?: BodyInit): Promise<T> {
+  // Counted at both ends: a read sent while this is under way may see the store before or after
+  // it, so it is not one to join once this has finished either. See `inFlight`.
+  writes += 1
   const response = await fetch(`/api${path}`, {
     method: 'POST',
     headers: {
@@ -760,6 +767,8 @@ async function send<T>(path: string, headers: HeadersInit, body?: BodyInit): Pro
     },
     body,
     cache: 'no-store',
+  }).finally(() => {
+    writes += 1
   })
   if (!response.ok) {
     const body = (await response.json().catch(() => null)) as { error?: string } | null

@@ -736,6 +736,12 @@ const LOCK_FILE = 'write.lock'
 const LOCK_POLL_MS = 50
 /** A lock file with no pid in it yet is one being written; this long after, it never will be. */
 const LOCK_UNWRITTEN_MS = 10_000
+/**
+ * How long a writer waits before saying who it is waiting for. Long enough for a full rebuild of a
+ * big project; short enough that a lock held by a pid some other program has since been given is
+ * reported rather than waited on forever.
+ */
+const LOCK_WAIT_MS = 5 * 60_000
 
 /**
  * Run `work` as the only writer to this project's files.
@@ -746,7 +752,9 @@ const LOCK_UNWRITTEN_MS = 10_000
  * (`exclusive` in viewdata.ts) only covers its process, and `probez collect`, `probez import
  * --into` and a second `probez view` are each a process of their own. So the lock is a file:
  * created exclusively, holding the pid that made it, and taken over once that pid is gone, so a
- * crash or a Ctrl-C cannot leave a project locked for good.
+ * crash or a Ctrl-C cannot leave a project locked for good. A pid that is not gone but was handed to
+ * another program cannot be told apart from a writer, so waiting has a deadline, and the error says
+ * which pid and which file.
  *
  * Not re-entrant: a writer called from inside another's `work` would wait for itself. Each public
  * writer takes it once, at the top, and never calls another while holding it.
@@ -756,6 +764,7 @@ const LOCK_UNWRITTEN_MS = 10_000
  */
 async function withProjectLock<T>(dir: string, work: () => Promise<T>, create = false): Promise<T> {
   const file = join(dir, LOCK_FILE)
+  const deadline = Date.now() + LOCK_WAIT_MS
   let held = false
   for (;;) {
     try {
@@ -775,12 +784,13 @@ async function withProjectLock<T>(dir: string, work: () => Promise<T>, create = 
         continue
       }
       if (code !== 'EEXIST') throw error
-      const holder = await abandonedBy(file)
-      if (holder !== null) {
-        // Only the lock that was found abandoned goes, not one another waiter has taken since.
-        const now = await readFile(file, 'utf8').catch(() => null)
-        if (now === holder) await rm(file, { force: true })
-        continue
+      if (await takeOver(file)) continue
+      if (Date.now() > deadline) {
+        const holder = (await readFile(file, 'utf8').catch(() => '')).trim() || 'unknown'
+        throw new Error(
+          `${dir} is still being written by process ${holder} after ${LOCK_WAIT_MS / 60_000} minutes. ` +
+            `If no probez is running, delete ${file} and try again.`,
+        )
       }
       await new Promise((resolve) => setTimeout(resolve, LOCK_POLL_MS))
     }
@@ -789,6 +799,35 @@ async function withProjectLock<T>(dir: string, work: () => Promise<T>, create = 
     return await work()
   } finally {
     if (held) await rm(file, { force: true })
+  }
+}
+
+/**
+ * Remove the lock if whoever holds it is gone, and say whether it did.
+ *
+ * Checking and removing are two steps, and two waiters that both found the same dead pid could
+ * otherwise both remove: the first its stale lock, the second the fresh one the first had made by
+ * then, and both would write. So a takeover is itself exclusive, through a second file that lives
+ * only for the moment it takes. Holding it, nothing can replace the lock under the check: the
+ * lock is only ever removed by its live owner, who is not dead, or by whoever holds this.
+ */
+async function takeOver(file: string): Promise<boolean> {
+  const guard = `${file}.takeover`
+  try {
+    await (await open(guard, 'wx', FILE_MODE)).close()
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
+    // Another waiter is checking. One that died doing it left this behind; it takes milliseconds.
+    const info = await stat(guard).catch(() => null)
+    if (info !== null && Date.now() - info.mtimeMs > LOCK_UNWRITTEN_MS) await rm(guard, { force: true })
+    return false
+  }
+  try {
+    if ((await abandonedBy(file)) === null) return false
+    await rm(file, { force: true })
+    return true
+  } finally {
+    await rm(guard, { force: true })
   }
 }
 
