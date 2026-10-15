@@ -715,7 +715,8 @@ export async function sessionPayload(
   const mine = rounds.filter((round) => round.session === session)
   if (mine.length === 0) throw new NotFound(`no session ${session} in ${slug}`)
 
-  const work = workIndex(rounds)
+  // Only this session's rounds: every label asked of it below belongs to them.
+  const work = workIndex(mine)
   const byTask = new Map<number, Round[]>()
   for (const round of mine) {
     const found = byTask.get(round.task)
@@ -785,7 +786,8 @@ export async function taskPayload(
     throw new NotFound(`no task ${task} in session ${session}`)
   }
 
-  const work = workIndex(rounds)
+  // Only this task's rounds: every label asked of it below belongs to them.
+  const work = workIndex(mine)
   const row = taskRows(mine, pricing)[0]!
   // Under `--debug` only: see `debug.ts`. Trails are the slow half, a read of every result body.
   const questions = debugOn() ? questionsOf(mine, { root: stored.path ?? '' }) : []
@@ -928,10 +930,11 @@ export async function trailsPayload(
   const { stored, rounds } = await open(dataDir, slug, source)
   const results = await readResultsIn(stored.dir, idsToRead(rounds))
   const root = stored.path ?? ''
-  const share = trailShare(rounds, { results, root })
+  const trails = trailsOf(rounds, { results, root })
+  const share = trailShare(rounds, { results, root }, trails)
   return {
     project: shown(stored),
-    trails: shownTrails(trailsOf(rounds, { results, root })),
+    trails: shownTrails(trails),
     steps: share.steps,
     finding: share.finding,
   }
@@ -950,8 +953,9 @@ export async function questionsPayload(
   source: PageSource | null = null,
 ): Promise<QuestionsPayload> {
   const { stored, rounds } = await open(dataDir, slug, source)
-  const share = questionShare(rounds, { root: stored.path ?? '' })
-  const questions = questionsOf(rounds, { root: stored.path ?? '' }).sort(
+  const found = questionsOf(rounds, { root: stored.path ?? '' })
+  const share = questionShare(rounds, { root: stored.path ?? '' }, found)
+  const questions = [...found].sort(
     (a, b) => b.calls.length - a.calls.length || a.session.localeCompare(b.session) || a.task - b.task,
   )
   const readings = await readReadings(stored.dir)

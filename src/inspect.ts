@@ -1576,8 +1576,12 @@ export interface TrailShare {
  * that led somewhere — against how much was calls that stand alone. A low share is not a fault; it
  * is what an agent working in a repository it already knows looks like.
  */
-export function trailShare(rounds: Round[], options: TrailOptions = {}): TrailShare {
-  const trails = trailsOf(rounds, options)
+export function trailShare(
+  rounds: Round[],
+  options: TrailOptions = {},
+  // Already worked out by a caller that lists them too: walking every call twice is the cost.
+  trails: Trail[] = trailsOf(rounds, options),
+): TrailShare {
   const inTrail = new Set<string>()
   for (const trail of trails) {
     for (const step of trail.steps) inTrail.add(`${step.session}\0${step.at}`)
