@@ -7,7 +7,7 @@ import { test } from 'node:test'
 
 import { useCommandKinds } from '../src/bash.js'
 import { labelRounds } from '../src/inspect.js'
-import { eachRound, importProject, listStored, MERGED_FILE, mergeIntoProject } from '../src/store.js'
+import { applyClear, eachRound, importProject, listStored, MERGED_FILE, mergeIntoProject, planClear } from '../src/store.js'
 import { exportProject, facetsPayload, forgetRounds, roundPayload } from '../src/viewdata.js'
 import { buildIndex } from '../src/searchindex.js'
 import { ROUND_DEFAULTS, TOOL_DEFAULTS } from './support.js'
@@ -203,4 +203,40 @@ test('search suggestions are remembered only until the rounds under them change'
 
   const unknown = await facetsPayload(dataDir, { key: 'nonsense' })
   assert.deepEqual(unknown.values, [])
+})
+
+test('a clear by age spares what arrived after it was planned', async () => {
+  const dataDir = store()
+  const before = Date.now() - 30 * 86_400_000
+  const now = new Date().toISOString()
+
+  // Planned as a whole removal, then a merge brings a round from today.
+  const { slug, dir } = await project(dataDir)
+  const plan = await planClear(dataDir, { before })
+  assert.equal(plan.projects[0]?.whole, true)
+  await mergeIntoProject(dataDir, slug, [round({ session: 's9', id: 'x1', committer: 'Dana', ts: now })], 0)
+
+  const done = await applyClear(dataDir, plan)
+  assert.equal(done.whole, 0, 'the project went whole despite a round from today')
+  const lines = readFileSync(join(dir, 'rounds.jsonl'), 'utf8').trim().split('\n')
+  assert.deepEqual(lines.map((line) => (JSON.parse(line) as Round).session), ['s9'])
+})
+
+test('a session planned for a trim is kept once it gains a recent round', async () => {
+  const dataDir = store()
+  const before = Date.now() - 30 * 86_400_000
+  const now = new Date().toISOString()
+  const { slug, dir } = await project(dataDir, [
+    round(),
+    round({ round: 1, id: 'msg_2' }),
+    round({ session: 's2', id: 'msg_3', ts: now }),
+  ])
+  const plan = await planClear(dataDir, { before })
+  assert.deepEqual(plan.projects[0]?.ids, ['s1'])
+  // The sync that was running when the clear was asked for lands a new round in s1.
+  await mergeIntoProject(dataDir, slug, [round({ round: 2, id: 'msg_4', committer: 'Dana', ts: now })], 0)
+
+  const done = await applyClear(dataDir, plan)
+  assert.equal(done.rounds, 0)
+  assert.equal(lineCount(join(dir, 'rounds.jsonl')), 4)
 })
