@@ -37,7 +37,25 @@ function withSource(path: string, source?: string | null): string {
   return `${path}${sep}source=${encodeURIComponent(source)}`
 }
 
-async function get<T>(path: string): Promise<T> {
+/**
+ * Requests still on their way, by path.
+ *
+ * A page and the shell around it often ask for the same thing at once (the Overview and the
+ * sidebar both load `/findings` for the same scope), and on a big store each of those is seconds of
+ * work on the server. A second ask while the first is in flight waits for that one. Only while it
+ * is in flight: a later ask is a fresh request, so nothing here can serve a stale answer.
+ */
+const inFlight = new Map<string, Promise<unknown>>()
+
+function get<T>(path: string): Promise<T> {
+  const pending = inFlight.get(path)
+  if (pending !== undefined) return pending as Promise<T>
+  const request = fetchJson<T>(path).finally(() => inFlight.delete(path))
+  inFlight.set(path, request)
+  return request
+}
+
+async function fetchJson<T>(path: string): Promise<T> {
   const response = await fetch(`/api${path}`, {
     headers: token === null ? {} : { 'x-probez-token': token },
     cache: 'no-store',
