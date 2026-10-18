@@ -762,7 +762,7 @@ const LOCK_WAIT_MS = 5 * 60_000
  * `create` is for collect, the one writer that makes a project. Every other writer finding no
  * directory runs unlocked, finds nothing to write to, and says so.
  */
-async function withProjectLock<T>(dir: string, work: () => Promise<T>, create = false): Promise<T> {
+export async function withProjectLock<T>(dir: string, work: () => Promise<T>, create = false): Promise<T> {
   const file = join(dir, LOCK_FILE)
   const deadline = Date.now() + LOCK_WAIT_MS
   let held = false
