@@ -15,6 +15,7 @@ import {
 } from '../src/discover.js'
 import { pathFromCursorSlug } from '../src/agents/paths.js'
 import type { Project } from '../src/types.js'
+import { cursorSlugOf, dashFreeDir } from './support.js'
 
 function workspace(): string {
   return realpathSync(mkdtempSync(join(tmpdir(), 'probez-discover-')))
@@ -68,7 +69,7 @@ test('Claude and Cursor checkouts of the same path merge into one project', asyn
   const root = workspace()
   // Cursor infers the path from the folder name, and dashes in a temp directory would decode as
   // extra segments. A dash-free checkout is the case where the two sources actually agree.
-  const project = realpathSync(mkdtempSync(join('/tmp', 'probezwork')))
+  const project = dashFreeDir()
 
   const claudeDir = join(root, 'claude')
   mkdirSync(join(claudeDir, 'encoded'), { recursive: true })
@@ -78,7 +79,7 @@ test('Claude and Cursor checkouts of the same path merge into one project', asyn
   )
 
   const cursorDir = join(root, 'cursor')
-  const slug = project.replaceAll('/', '-').replace(/^-/, '')
+  const slug = cursorSlugOf(project)
   mkdirSync(join(cursorDir, slug, 'agent-transcripts', 'sid'), { recursive: true })
   writeFileSync(join(cursorDir, slug, 'agent-transcripts', 'sid', 'sid.jsonl'), '{}\n')
 
@@ -159,9 +160,9 @@ test('discoverClaudeProjects still finds a flat session directory', async () => 
 })
 
 test('a Cursor checkout whose directory name contains dashes is still that directory', async () => {
-  const project = join(realpathSync(mkdtempSync(join('/tmp', 'probezwork'))), 'flowz-agentic-sdlc')
+  const project = join(dashFreeDir(), 'flowz-agentic-sdlc')
   mkdirSync(project)
-  const slug = project.replaceAll('/', '-').replace(/^-/, '')
+  const slug = cursorSlugOf(project)
   const cursorDir = join(workspace(), 'cursor')
   mkdirSync(join(cursorDir, slug, 'agent-transcripts', 'sid'), { recursive: true })
   writeFileSync(join(cursorDir, slug, 'agent-transcripts', 'sid', 'sid.jsonl'), '{}\n')

@@ -19,6 +19,8 @@ import { basename, dirname, join } from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 
+import { cursorSlugOf, dashFreeDir, inJson } from './support.js'
+
 /**
  * End-to-end tests over the built CLI.
  *
@@ -98,7 +100,7 @@ function makeSource(sessions: number, delegated = false): {
   const template = readFileSync(FIXTURE, 'utf8')
   for (let i = 0; i < sessions; i++) {
     const id = `${String(i).repeat(8)}-0000-0000-0000-000000000000`
-    writeFileSync(join(sourceDir, `${id}.jsonl`), template.replaceAll('/tmp/demo', project))
+    writeFileSync(join(sourceDir, `${id}.jsonl`), template.replaceAll('/tmp/demo', inJson(project)))
   }
   if (delegated && sessions > 0) {
     const id = `${'0'.repeat(8)}-0000-0000-0000-000000000000`
@@ -106,7 +108,7 @@ function makeSource(sessions: number, delegated = false): {
     mkdirSync(under, { recursive: true })
     writeFileSync(
       join(under, 'agent-a1234567.jsonl'),
-      readFileSync(SUBAGENT_FIXTURE, 'utf8').replaceAll('/tmp/demo', project),
+      readFileSync(SUBAGENT_FIXTURE, 'utf8').replaceAll('/tmp/demo', inJson(project)),
     )
   }
   return { claudeDir, cursorDir, codexDir, copilotDir, piDir, opencodeDir, gooseDir, clineDir, dataDir, project }
@@ -179,7 +181,7 @@ function walk(dir: string): string[] {
 
 const SHARED_BITS = 0o077
 
-test('a new store is readable only by its owner', () => {
+test('a new store is readable only by its owner', { skip: process.platform === 'win32' }, () => {
   const env = makeSource(1)
   assert.equal(collect(env).status, 0)
 
@@ -187,7 +189,7 @@ test('a new store is readable only by its owner', () => {
   assert.deepEqual(shared, [], 'no path in the store may be group- or world-accessible')
 })
 
-test('collect repairs a store that was left world-readable', () => {
+test('collect repairs a store that was left world-readable', { skip: process.platform === 'win32' }, () => {
   const env = makeSource(1)
   assert.equal(collect(env).status, 0)
 
@@ -355,7 +357,7 @@ test('a model with no rate is reported rather than priced at nothing', () => {
   writeFileSync(
     join(env.claudeDir, 'encoded-project-name', '11111111-0000-0000-0000-000000000000.jsonl'),
     readFileSync(FIXTURE, 'utf8')
-      .replaceAll('/tmp/demo', env.project)
+      .replaceAll('/tmp/demo', inJson(env.project))
       .replaceAll('claude-opus-5', 'claude-sonnet-5'),
   )
   assert.equal(collect(env).status, 0)
@@ -416,7 +418,8 @@ test('`analyze` writes its cache owner-only, and writing it again changes nothin
 
   const file = walk(env.dataDir).find((path) => path.endsWith('analysis.jsonl'))
   assert.ok(file !== undefined, 'analyze must leave an analysis.jsonl for the next stage')
-  assert.equal(statSync(file).mode & 0o777, 0o600)
+  // Windows has no owner, group and world bits to check.
+  if (process.platform !== 'win32') assert.equal(statSync(file).mode & 0o777, 0o600)
 
   const header = JSON.parse(readFileSync(file, 'utf8').split('\n')[0]!) as Record<string, unknown>
   assert.equal(typeof header.analyzer_version, 'number')
@@ -543,7 +546,7 @@ function secondProject(env: ReturnType<typeof makeSource>, name: string): string
   mkdirSync(dir, { recursive: true })
   writeFileSync(
     join(dir, 'bbbbbbbb-0000-0000-0000-000000000000.jsonl'),
-    readFileSync(FIXTURE, 'utf8').replaceAll('/tmp/demo', second),
+    readFileSync(FIXTURE, 'utf8').replaceAll('/tmp/demo', inJson(second)),
   )
   return second
 }
@@ -949,8 +952,8 @@ function makeCursorSource(): ReturnType<typeof makeSource> & { sessionDir: strin
   const env = makeSource(0)
   // Cursor has no cwd in the file, so discovery infers the path from the folder name. Dashes in
   // a temp directory would decode as extra path segments, so this checkout is dash-free.
-  const project = realpathSync(mkdtempSync(join('/tmp', 'probezwork')))
-  const slug = project.replaceAll('/', '-').replace(/^-/, '')
+  const project = dashFreeDir()
+  const slug = cursorSlugOf(project)
   const sessionId = 'aaaa1111-0000-0000-0000-000000000000'
   const sessionDir = join(env.cursorDir, slug, 'agent-transcripts', sessionId)
   mkdirSync(join(sessionDir, 'subagents'), { recursive: true })
@@ -983,7 +986,7 @@ test('collect merges Claude and Cursor sessions for the same checkout', () => {
   const sourceDir = join(env.claudeDir, 'encoded-project-name')
   writeFileSync(
     join(sourceDir, '11111111-0000-0000-0000-000000000000.jsonl'),
-    readFileSync(FIXTURE, 'utf8').replaceAll('/tmp/demo', env.project),
+    readFileSync(FIXTURE, 'utf8').replaceAll('/tmp/demo', inJson(env.project)),
   )
   const both = collect(env, ['--json'])
   assert.equal(both.status, 0, both.stderr)
@@ -1047,10 +1050,10 @@ function makeCodexSource(): ReturnType<typeof makeSource> {
   const day = join(env.codexDir, '2026', '01', '06')
   mkdirSync(day, { recursive: true })
   const name = 'rollout-2026-01-06T00-00-00-cccc3333-0000-0000-0000-000000000000.jsonl'
-  writeFileSync(join(day, name), readFileSync(CODEX_FIXTURE, 'utf8').replaceAll('/tmp/demo', env.project))
+  writeFileSync(join(day, name), readFileSync(CODEX_FIXTURE, 'utf8').replaceAll('/tmp/demo', inJson(env.project)))
   writeFileSync(
     join(day, 'rollout-2026-01-06T00-00-01-dddd4444-0000-0000-0000-000000000000.jsonl'),
-    readFileSync(CODEX_SUB, 'utf8').replaceAll('/tmp/demo', env.project),
+    readFileSync(CODEX_SUB, 'utf8').replaceAll('/tmp/demo', inJson(env.project)),
   )
   return env
 }
@@ -1181,7 +1184,7 @@ test('collect merges Claude and Codex sessions for the same checkout', () => {
   const sourceDir = join(env.claudeDir, 'encoded-project-name')
   writeFileSync(
     join(sourceDir, '11111111-0000-0000-0000-000000000000.jsonl'),
-    readFileSync(FIXTURE, 'utf8').replaceAll('/tmp/demo', env.project),
+    readFileSync(FIXTURE, 'utf8').replaceAll('/tmp/demo', inJson(env.project)),
   )
   const both = collect(env, ['--json'])
   assert.equal(both.status, 0, both.stderr)
@@ -1234,13 +1237,13 @@ function makeMixedSource(): ReturnType<typeof makeSource> {
   mkdirSync(sourceDir, { recursive: true })
   writeFileSync(
     join(sourceDir, '11111111-0000-0000-0000-000000000000.jsonl'),
-    readFileSync(FIXTURE, 'utf8').replaceAll('/tmp/demo', env.project),
+    readFileSync(FIXTURE, 'utf8').replaceAll('/tmp/demo', inJson(env.project)),
   )
   const day = join(env.codexDir, '2026', '01', '06')
   mkdirSync(day, { recursive: true })
   writeFileSync(
     join(day, 'rollout-2026-01-06T00-00-00-cccc3333-0000-0000-0000-000000000000.jsonl'),
-    readFileSync(CODEX_FIXTURE, 'utf8').replaceAll('/tmp/demo', env.project),
+    readFileSync(CODEX_FIXTURE, 'utf8').replaceAll('/tmp/demo', inJson(env.project)),
   )
   return env
 }
@@ -1377,7 +1380,7 @@ function makeWalkSource(): ReturnType<typeof makeSource> {
   mkdirSync(dir, { recursive: true })
   writeFileSync(
     join(dir, 'aaaaaaaa-0000-0000-0000-00000000000a.jsonl'),
-    readFileSync(WALK_FIXTURE, 'utf8').replaceAll('/tmp/demo', env.project),
+    readFileSync(WALK_FIXTURE, 'utf8').replaceAll('/tmp/demo', inJson(env.project)),
   )
   return env
 }

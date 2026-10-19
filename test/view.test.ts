@@ -21,6 +21,7 @@ import { fileURLToPath } from 'node:url'
 import { startServer } from '../src/serve.js'
 import type { Serving } from '../src/serve.js'
 import { BadRequest, explainOne, forgetRounds, parentIn } from '../src/viewdata.js'
+import { cursorSlugOf, inJson } from './support.js'
 
 /**
  * The local server, exercised the way the browser meets it.
@@ -57,19 +58,16 @@ function makeStore(delegated = false): {
   mkdirSync(sourceDir, { recursive: true })
 
   const session = '11111111-0000-0000-0000-000000000000'
-  // The fixtures are JSON, so the path goes in escaped: a Windows path's backslashes would
-  // otherwise be read back as escapes, and collect would match no project.
-  const inJson = JSON.stringify(project).slice(1, -1)
   writeFileSync(
     join(sourceDir, `${session}.jsonl`),
-    readFileSync(FIXTURE, 'utf8').replaceAll('/tmp/demo', inJson),
+    readFileSync(FIXTURE, 'utf8').replaceAll('/tmp/demo', inJson(project)),
   )
   if (delegated) {
     const under = join(sourceDir, session, 'subagents')
     mkdirSync(under, { recursive: true })
     writeFileSync(
       join(under, 'agent-a1234567.jsonl'),
-      readFileSync(SUBAGENT_FIXTURE, 'utf8').replaceAll('/tmp/demo', inJson),
+      readFileSync(SUBAGENT_FIXTURE, 'utf8').replaceAll('/tmp/demo', inJson(project)),
     )
   }
   const cursorDir = join(root, 'cursor')
@@ -121,15 +119,6 @@ function snapshot(dir: string): Record<string, string> {
   }
   walk(dir)
   return seen
-}
-
-/**
- * The folder Cursor files a checkout's transcripts under: every separator a dash. On Windows the
- * drive letter leads with its colon dropped, `C:\Users\me\repo` as `C-Users-me-repo`, which is the
- * shape `pathFromCursorSlug` reads back.
- */
-function cursorSlugOf(project: string): string {
-  return project.replace(/^([A-Za-z]):/, '$1').replaceAll(/[\\/]/g, '-').replace(/^-/, '')
 }
 
 async function serving(

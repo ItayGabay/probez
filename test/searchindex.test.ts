@@ -278,7 +278,7 @@ test('a project with no index answers by reading its rounds', async () => {
   assert.equal(result.totals.rounds, scanned.totals.rounds)
 })
 
-test('the index is written owner-only, and stays that way when it is rewritten', async () => {
+test('the index is written owner-only, and stays that way when it is rewritten', { skip: process.platform === 'win32' }, async () => {
   const dir = store(corpus())
   await buildIndex(dir)
   const file = indexFile(dir)
