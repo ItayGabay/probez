@@ -731,6 +731,12 @@ async function withArchived(
 
 /* One writer per project, across processes. ---------------------------------------------------- */
 
+/**
+ * A writer gave up waiting for the project's lock. Its own class so the view can hand the sentence
+ * to the page — which process, which file to delete — instead of a bare 500.
+ */
+export class ProjectLocked extends Error {}
+
 /** Beside the rounds it guards, so a project removed takes its lock with it. */
 const LOCK_FILE = 'write.lock'
 const LOCK_POLL_MS = 50
@@ -787,7 +793,7 @@ export async function withProjectLock<T>(dir: string, work: () => Promise<T>, cr
       if (await takeOver(file)) continue
       if (Date.now() > deadline) {
         const holder = (await readFile(file, 'utf8').catch(() => '')).trim() || 'unknown'
-        throw new Error(
+        throw new ProjectLocked(
           `${dir} is still being written by process ${holder} after ${LOCK_WAIT_MS / 60_000} minutes. ` +
             `If no probez is running, delete ${file} and try again.`,
         )

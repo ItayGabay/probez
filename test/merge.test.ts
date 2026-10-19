@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict'
-import { mkdtempSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { test } from 'node:test'
+import { mock, test } from 'node:test'
 
-import { applyClear, collectProject, importProject, listStored, MERGED_FILE, planClear, readRoundsIn } from '../src/store.js'
+import { applyClear, collectProject, importProject, listStored, MERGED_FILE, planClear, ProjectLocked, readRoundsIn } from '../src/store.js'
 import { BadRequest, exportProject, forgetRounds, identityPayload, mergeExport, NotFound, searchPayload } from '../src/viewdata.js'
 import { ROUND_DEFAULTS } from './support.js'
 import type { Project, Round } from '../src/types.js'
@@ -204,6 +204,40 @@ test('two merges sent at once both land, because each waits for the one before i
   const ids = (await readRoundsIn(stored.dir)).map((row) => row.id).sort()
   assert.deepEqual(ids, ['a1', 'b1', 'msg_1', 'msg_2'])
   assert.deepEqual(stored.committers, ['Bob', 'Dana'])
+})
+
+test('a merge that cannot get the project\'s lock says who holds it, and changes nothing', async () => {
+  const dataDir = store()
+  const slug = await mine(dataDir)
+  const stored = (await listStored(dataDir)).find((row) => row.slug === slug)!
+  // Held by a process that is alive — this one — so nothing can take it over as abandoned.
+  const lock = join(stored.dir, 'write.lock')
+  writeFileSync(lock, String(process.pid))
+  const before = readFileSync(join(stored.dir, 'rounds.jsonl'), 'utf8')
+
+  // Each read of the clock is six minutes on from the last, so the five-minute wait for the lock
+  // ends at its first check instead of being sat through.
+  const real = Date.now.bind(Date)
+  let reads = 0
+  const clock = mock.method(Date, 'now', () => real() + ++reads * 6 * 60_000)
+  try {
+    const theirs = lines([round({ session: 's9', id: 'x1', committer: 'Dana' })])
+    await assert.rejects(mergeExport(dataDir, slug, { text: theirs }), (error) => {
+      // Not a refusal of the file but a writer in the way, which the view answers with a 409.
+      assert.ok(error instanceof ProjectLocked)
+      assert.match(error.message, new RegExp(`still being written by process ${process.pid}`))
+      return true
+    })
+  } finally {
+    clock.mock.restore()
+  }
+  assert.equal(readFileSync(join(stored.dir, 'rounds.jsonl'), 'utf8'), before)
+  assert.equal(readFileSync(lock, 'utf8'), String(process.pid), 'the lock is still its holder\'s')
+
+  // Let go, the same file merges: a merge that gave up on the lock queued nothing behind it.
+  rmSync(lock)
+  const merged = await mergeExport(dataDir, slug, { text: lines([round({ session: 's9', id: 'x1', committer: 'Dana' })]) })
+  assert.equal(merged.added, 1)
 })
 
 test('a schema rebuild puts merged rounds back, in the current shape', async () => {
