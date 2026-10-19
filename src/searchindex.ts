@@ -47,7 +47,7 @@ import { priceOf } from './pricing.js'
 import type { Pricing } from './pricing.js'
 import { isWord, matches } from './query.js'
 import type { Node, Query, Subject } from './query.js'
-import { DIR_MODE, eachRoundLine, FILE_MODE, tighten } from './store.js'
+import { DIR_MODE, eachRoundLine, FILE_MODE, tighten, withProjectLock } from './store.js'
 import type { Round } from './types.js'
 
 /**
@@ -496,6 +496,13 @@ export async function writeIndex(
  * the columns are short of, and that is the one failure mode an index must not have.
  */
 export async function buildIndex(dir: string): Promise<{ rounds: number } | null> {
+  // Under the project's lock, so a delete or a clear that lands after the collect or merge before
+  // this cannot be undone by it: the rounds are looked for once the lock is held, and a project
+  // that has gone is left gone rather than brought back holding only an index.
+  return withProjectLock(dir, () => buildIndexUnlocked(dir))
+}
+
+async function buildIndexUnlocked(dir: string): Promise<{ rounds: number } | null> {
   const file = join(dir, 'rounds.jsonl')
   const info = await stat(file).catch(() => null)
   if (info === null) return null

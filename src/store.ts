@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { createReadStream } from 'node:fs'
 import {
   appendFile,
@@ -325,7 +325,15 @@ export interface AnalysisHeader {
   toolless: number
 }
 
-/** Replace the cached analysis wholesale. Recomputing is cheap, so there is no incremental path. */
+/**
+ * Replace the cached analysis wholesale. Recomputing is cheap, so there is no incremental path.
+ *
+ * Written under the project's lock, and only while the project still has rounds. Every caller
+ * writes this after the collect or merge that produced its rounds has let the lock go, and a
+ * delete or a clear can land in between: writing then would bring back a project folder holding
+ * nothing but this file. A trim landing there is harmless, since the header's count no longer
+ * matches the rounds and readers ignore it.
+ */
 export async function writeAnalysis(
   file: string,
   header: Omit<AnalysisHeader, 'schema_version' | 'analyzer_version' | 'analyzed_at'>,
@@ -340,9 +348,12 @@ export async function writeAnalysis(
     }),
     ...records.map((record) => JSON.stringify(record)),
   ]
-  await mkdir(dirname(file), { recursive: true, mode: DIR_MODE })
-  await writeFile(file, lines.join('\n') + '\n', { encoding: 'utf8', mode: FILE_MODE })
-  await tighten(file, FILE_MODE)
+  const dir = dirname(file)
+  await withProjectLock(dir, async () => {
+    if ((await stat(join(dir, 'rounds.jsonl')).catch(() => null)) === null) return
+    await writeFile(file, lines.join('\n') + '\n', { encoding: 'utf8', mode: FILE_MODE })
+    await tighten(file, FILE_MODE)
+  })
 }
 
 /** Owner-only, the mode the agent already uses for the session files probez reads. */
@@ -1631,10 +1642,33 @@ export async function removeProject(
   return withProjectLock(dir, () => removeUnlocked(dataDir, slug, dir))
 }
 
+/**
+ * Take a project's directory away in one step, then delete it.
+ *
+ * The lock file lives inside the directory, so deleting in place unlinks it partway through: a
+ * writer in another process polling for the lock takes it there and writes into a folder that is
+ * still going, and either loses its work to the rest of the delete or leaves the delete unable to
+ * finish. Moved aside first, the directory is simply not there to anyone waiting. The new name
+ * starts with a dot, which `isSlug` refuses, so nothing that lists projects ever sees it.
+ */
+async function removeProjectDir(dir: string): Promise<void> {
+  const aside = join(dirname(dir), `.removing-${basename(dir)}-${randomUUID()}`)
+  try {
+    await rename(dir, aside)
+  } catch (error) {
+    if (isMissing(error)) return
+    // Windows refuses to move a folder while another program holds a file in it open. Deleting in
+    // place is what this did before, and is still better than leaving the project behind.
+    await rm(dir, { recursive: true, force: true })
+    return
+  }
+  await rm(aside, { recursive: true, force: true })
+}
+
 async function removeUnlocked(dataDir: string, slug: string, dir: string): Promise<RemoveResult | null> {
   const stored = await findStored(dataDir, slug)
   if (stored === null) return null
-  await rm(dir, { recursive: true, force: true })
+  await removeProjectDir(dir)
   return {
     slug,
     project: stored.project,
@@ -1924,7 +1958,7 @@ async function clearOne(
   // The plan's figures are all there is, and the fence above is the same one it applies.
   if (one.whole && one.unreadable === true) {
     if (!(await stat(dir).then(() => true, () => false))) return
-    await withProjectLock(dir, () => rm(dir, { recursive: true, force: true }))
+    await withProjectLock(dir, () => removeProjectDir(dir))
     removed(one.rounds, one.project)
     return
   }
