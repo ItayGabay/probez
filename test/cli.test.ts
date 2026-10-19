@@ -1918,3 +1918,22 @@ test('import --into merges another machine\'s export into a project, named for w
 
   assert.match(run(['import', theirs, '--committer', 'Dana', '--data-dir', store]).stderr, /--into/)
 })
+
+test('a detail command on a machine with no sessions and an empty store says where it looked', () => {
+  const env = makeSource(0)
+  for (const [command, id] of [
+    ['session', '00000000'],
+    ['task', '1'],
+    ['round', '1.0'],
+    ['question', '1.3'],
+    ['trail', '1.0'],
+    ['explain', '1.3'],
+  ] as const) {
+    const empty = read(env, [command, id])
+    assert.equal(empty.status, 1, `${command}: ${empty.stderr}`)
+    assert.match(empty.stderr, /^probez: no agent sessions found in /, command)
+    // Named so the person can see which directories were searched, not merely that nothing was.
+    assert.ok(empty.stderr.includes(basename(env.claudeDir)), `${command} names where it looked`)
+    assert.equal(empty.stdout, '', `${command} printed something besides the error`)
+  }
+})

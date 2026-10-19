@@ -1,13 +1,13 @@
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 
 import { useCommandKinds } from '../src/bash.js'
 import { labelRounds } from '../src/inspect.js'
-import { applyClear, eachRound, importProject, listStored, MERGED_FILE, mergeIntoProject, planClear } from '../src/store.js'
+import { applyClear, eachRound, importProject, listStored, MERGED_FILE, mergeIntoProject, planClear, removeProject, writeAnalysis } from '../src/store.js'
 import { exportProject, facetsPayload, forgetRounds, roundPayload } from '../src/viewdata.js'
 import { buildIndex } from '../src/searchindex.js'
 import { ROUND_DEFAULTS, TOOL_DEFAULTS } from './support.js'
@@ -239,4 +239,48 @@ test('a session planned for a trim is kept once it gains a recent round', async 
   const done = await applyClear(dataDir, plan)
   assert.equal(done.rounds, 0)
   assert.equal(lineCount(join(dir, 'rounds.jsonl')), 4)
+})
+
+test('a cache waits for whoever holds the project, and does not bring back a project they deleted', async () => {
+  const dataDir = store()
+  const { dir } = await project(dataDir)
+  const other = sleeper()
+  try {
+    writeFileSync(join(dir, 'write.lock'), String(other.pid))
+    let done = false
+    const writing = Promise.all([
+      writeAnalysis(join(dir, 'analysis.jsonl'), { rounds: 2, toolless: 0 }, []),
+      buildIndex(dir),
+    ]).then((result) => {
+      done = true
+      return result
+    })
+    await new Promise((resolve) => setTimeout(resolve, 300))
+    assert.equal(done, false, 'the caches were written under another writer')
+
+    // The other writer was a delete. What a sync or a collect computed before it is now about a
+    // project that is not there, and writing it would bring the folder back holding only caches.
+    rmSync(dir, { recursive: true, force: true })
+    const [, index] = await writing
+    assert.equal(index, null)
+    assert.equal(existsSync(dir), false, 'the deleted project came back')
+  } finally {
+    other.stop()
+  }
+})
+
+test('a project being removed is gone to anyone waiting on it, and leaves nothing behind', async () => {
+  const dataDir = store()
+  const { slug, dir } = await project(dataDir)
+  // A merge queued behind the delete finds no project, rather than a lock inside a folder that is
+  // still being deleted. Whichever goes first, the project ends up gone and nothing is half there.
+  const [removed] = await Promise.all([removeProject(dataDir, slug), mergeIntoProject(dataDir, slug, theirs(), 0)])
+  assert.equal(removed?.slug, slug)
+  assert.equal(existsSync(dir), false)
+  assert.deepEqual(readdirSync(join(dataDir, 'projects')), [], 'the folder moved aside was deleted too')
+
+  // One a crash left mid-delete is never taken for a project, readable or not.
+  mkdirSync(join(dataDir, 'projects', `.removing-${slug}-left`), { recursive: true })
+  assert.deepEqual(await listStored(dataDir), [])
+  assert.deepEqual((await planClear(dataDir)).projects, [])
 })
