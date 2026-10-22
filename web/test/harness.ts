@@ -130,8 +130,9 @@ export async function openApp(path = '/', store?: Awaited<ReturnType<typeof make
   // The link `probez view` prints, which the page takes its token from and then hides.
   window.history.replaceState(null, '', `${path}${path.includes('?') ? '&' : '?'}t=${server.token}`)
   document.body.innerHTML = '<div id="root"></div>'
+  let page: { unmount(): void } | null = null
   await act(async () => {
-    await import('../src/main')
+    ;({ page } = await import('../src/main'))
   })
 
   return {
@@ -154,6 +155,9 @@ export async function openApp(path = '/', store?: Awaited<ReturnType<typeof make
       }
     },
     async close() {
+      // Taken down before anything else goes. The page keeps timers of its own — a sentence it said
+      // clears itself after eight seconds — and one that fires after jsdom is gone finds no window.
+      act(() => page?.unmount())
       globalThis.fetch = real
       await server.close()
     },
