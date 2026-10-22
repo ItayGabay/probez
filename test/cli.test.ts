@@ -2008,7 +2008,15 @@ function withDatabases(env: ReturnType<typeof makeSource>): void {
   writeFileSync(join(env.gooseDir, 'sessions.db'), '')
 }
 
-const NO_SQLITE = ['--no-experimental-sqlite']
+/**
+ * How to run a Node that cannot read SQLite, on whichever Node runs these.
+ *
+ * Where it has SQLite it can be told not to; before 22.13 there is no SQLite to turn off and no flag
+ * to do it with, and Node refuses to start when given one, so it runs as it is.
+ */
+const NO_SQLITE = spawnSync(process.execPath, ['--no-experimental-sqlite', '-e', '0']).status === 0
+  ? ['--no-experimental-sqlite']
+  : []
 
 function saysSkipped(stderr: string): void {
   assert.match(stderr, /OpenCode sessions in .*opencode\.db need Node 22\.13 or later to read \(this is v[\d.]+\); skipped/)
