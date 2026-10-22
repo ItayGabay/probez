@@ -1047,6 +1047,139 @@ test('the reader is argv, and setting it is a POST', async () => {
   }
 })
 
+/** A JSON POST with the token, as the Settings screen and the project page send one. */
+const posting = (server: Serving, path: string, sent: unknown): Promise<Response> =>
+  get(server, `${path}${path.includes('?') ? '&' : '?'}t=${server.token}`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(sent),
+  })
+
+test('a project that is not in the store is a 404 on every route that names one, read or write', async () => {
+  const { dataDir } = makeStore()
+  const server = await serving(dataDir)
+  const missing = { status: 404, error: 'no project nobody-here in this store' }
+  try {
+    assert.deepEqual(await refusal(withToken(server, '/api/projects/nobody-here/export')), missing)
+    assert.deepEqual(await refusal(withToken(server, '/api/projects/nobody-here/readings')), missing)
+    assert.deepEqual(await refusal(withToken(server, '/api/search?q=read&project=nobody-here')), missing)
+    assert.deepEqual(await refusal(posting(server, '/api/projects/nobody-here/rename', { name: 'x' })), missing)
+    assert.deepEqual(await refusal(posting(server, '/api/projects/nobody-here/sync', {})), missing)
+    // And none of them made one by asking.
+    assert.equal(existsSync(join(dataDir, 'projects', 'nobody-here')), false)
+  } finally {
+    await server.close()
+  }
+})
+
+test('a rename says what was wrong with the name, and a refused one leaves the old name', async () => {
+  const { dataDir, slug } = makeStore()
+  const server = await serving(dataDir)
+  try {
+    const before = (await body(withToken(server, `/api/projects/${slug}`))).project.name
+    assert.deepEqual(await refusal(posting(server, `/api/projects/${slug}/rename`, {})), {
+      status: 400,
+      error: 'expected { name: "<what to call it>" }',
+    })
+    assert.deepEqual(await refusal(posting(server, `/api/projects/${slug}/rename`, { name: 7 })), {
+      status: 400,
+      error: 'expected { name: "<what to call it>" }',
+    })
+    assert.deepEqual(await refusal(posting(server, `/api/projects/${slug}/rename`, { name: 'x'.repeat(400) })), {
+      status: 400,
+      error: 'a name has to fit in 80 characters',
+    })
+    assert.equal((await body(withToken(server, `/api/projects/${slug}`))).project.name, before)
+  } finally {
+    await server.close()
+  }
+})
+
+test('a result the archived log never recorded, and a round the session never had, are each a 404', async () => {
+  const { dataDir, slug, session } = makeStore()
+  const archived = join(dataDir, 'projects', slug, 'sessions', `${session}.jsonl`)
+  // The call stays in the rounds and its result leaves the log, which is a session the agent
+  // wrote before the result came back.
+  const lines = readFileSync(archived, 'utf8').split('\n')
+  writeFileSync(archived, lines.filter((line) => !line.includes('"tool_use_id": "tu_1"')).join('\n'))
+  const server = await serving(dataDir)
+  try {
+    assert.deepEqual(await refusal(withToken(server, `/api/projects/${slug}/sessions/${session}/results/tu_1`)), {
+      status: 404,
+      error: 'the archived session records no result for tu_1',
+    })
+    assert.deepEqual(await refusal(withToken(server, `/api/projects/${slug}/sessions/${session}/rounds/9999`)), {
+      status: 404,
+      error: `no round 9999 in session ${session}`,
+    })
+    // The other calls' results are still in the log and still answer.
+    assert.equal((await body(withToken(server, `/api/projects/${slug}/sessions/${session}/results/tu_2`))).body, 'boom')
+  } finally {
+    await server.close()
+  }
+})
+
+test('each setting says which part of what was sent is wrong, and a refusal saves none of it', async () => {
+  const { dataDir } = makeStore()
+  const server = await serving(dataDir)
+  try {
+    // Who you are is the one setting with no file until it is chosen.
+    const identity = await body(withToken(server, '/api/identity'))
+    assert.equal(identity.chosen, false)
+    assert.deepEqual(await refusal(posting(server, '/api/identity', {})), {
+      status: 400,
+      error: 'expected { name: "<who you are>" }',
+    })
+    assert.equal((await body(withToken(server, '/api/identity'))).chosen, false)
+    const chosen = await body(posting(server, '/api/identity', { name: 'Dana' }))
+    assert.equal(chosen.committer, 'Dana')
+    assert.equal(chosen.chosen, true)
+    assert.equal((await body(withToken(server, '/api/identity'))).committer, 'Dana')
+
+    assert.deepEqual(await refusal(posting(server, '/api/commands', { kinds: { q: 'graph' } })), {
+      status: 400,
+      error: 'expected { commands: { "<name>": "<kind>" } }',
+    })
+
+    const pricing = JSON.stringify((await body(withToken(server, '/api/pricing'))).models)
+    const rates = { in: 1, cache_write_5m: 1, cache_write_1h: 2, cache_read: 0.1, out: 8 }
+    assert.deepEqual(await refusal(posting(server, '/api/pricing', { models: [] })), {
+      status: 400,
+      error: 'expected { models: { "<model>": { in, cache_write_5m, cache_write_1h, cache_read, out } | null } }',
+    })
+    assert.deepEqual(await refusal(posting(server, '/api/pricing', { models: { '': null } })), {
+      status: 400,
+      error: '"" is not a model name',
+    })
+    assert.deepEqual(await refusal(posting(server, '/api/pricing', { models: { 'm-1': 5 } })), {
+      status: 400,
+      error: 'm-1 has no rates',
+    })
+    assert.deepEqual(await refusal(posting(server, '/api/pricing', { models: { 'm-1': { ...rates, out: -1 } } })), {
+      status: 400,
+      error: 'm-1.out must be a number of dollars per million tokens',
+    })
+    // One bad row refuses the lot, so a good row sent beside it is not half-saved.
+    assert.deepEqual(
+      await refusal(posting(server, '/api/pricing', { models: { 'good-1': rates, 'm-1': { ...rates, in: 'one' } } })),
+      { status: 400, error: 'm-1.in must be a number of dollars per million tokens' },
+    )
+    assert.equal(JSON.stringify((await body(withToken(server, '/api/pricing'))).models), pricing)
+
+    assert.deepEqual(await refusal(posting(server, '/api/reader', null)), {
+      status: 400,
+      error: 'that is not a reader',
+    })
+    assert.deepEqual(await refusal(posting(server, '/api/reader', { command: ['claude', 3] })), {
+      status: 400,
+      error: 'a command is a list of strings',
+    })
+    assert.deepEqual((await body(withToken(server, '/api/reader'))).command, [])
+  } finally {
+    await server.close()
+  }
+})
+
 /**
  * A clock that has run past every deadline by the time anything reads it twice.
  *
@@ -1711,4 +1844,40 @@ test('a subagent names the listed session it ran under, whichever way its agent 
   assert.equal(parentIn('bbbb/bbbb', cursor), null)
   // A parent the store does not hold is still named, as the id has it.
   assert.equal(parentIn('dddd/subagents/eeee', new Set()), 'dddd')
+})
+
+test('a result whose session log is not here says why, for a collected project and an imported one', async () => {
+  const { dataDir, slug, session } = makeStore()
+  const server = await serving(dataDir)
+  try {
+    // A collected project whose archived copy has gone: the call is real, the log is not.
+    const sessions = join(dataDir, 'projects', slug, 'sessions')
+    for (const file of readdirSync(sessions)) rmSync(join(sessions, file))
+    const collected = await withToken(server, `/api/projects/${slug}/sessions/${session}/results/tu_1`)
+    assert.equal(collected.status, 404)
+    assert.match(((await collected.json()) as { error: string }).error, new RegExp(`no archived copy of session ${session}`))
+
+    // An imported project never had one: an export carries the rounds, not the logs behind them.
+    // The page's own rounds export, sent back through the page's import, as a colleague would.
+    const exported = await (await withToken(server, `/api/projects/${slug}/export?format=jsonl`)).text()
+    const imported = await body(
+      get(server, '/api/import', {
+        method: 'POST',
+        headers: {
+          'x-probez-token': server.token,
+          'content-type': 'application/x-ndjson',
+          'x-probez-filename': 'from-a-colleague-rounds.jsonl',
+        },
+        body: exported,
+      }),
+    )
+    assert.equal(typeof imported.slug, "string", JSON.stringify(imported))
+    const theirs = imported.slug as string
+    assert.notEqual(theirs, slug)
+    const missing = await withToken(server, `/api/projects/${theirs}/sessions/${session}/results/tu_1`)
+    assert.equal(missing.status, 404)
+    assert.match(((await missing.json()) as { error: string }).error, /an imported project carries its rounds, not the logs behind them/)
+  } finally {
+    await server.close()
+  }
 })
