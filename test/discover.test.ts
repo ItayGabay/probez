@@ -10,6 +10,7 @@ import {
   discoverCopilotProjects,
   discoverCursorProjects,
   discoverProjects,
+  isEphemeral,
   matchProjects,
   mergeProjects,
 } from '../src/discover.js'
@@ -332,3 +333,17 @@ test('--source copilot skips Claude projects', async () => {
   assert.equal(found.length, 0)
 })
 
+test('a project in the temp directory is scratch, whichever separator or case its path was recorded in', () => {
+  const at = (path: string | null): Project => ({ key: 'k', path, dir: '', sessions: [], lastActivity: 0, sources: ['claude-code'] })
+  assert.equal(isEphemeral(at(join(tmpdir(), 'bench-1'))), true)
+  assert.equal(isEphemeral(at(tmpdir())), true)
+  assert.equal(isEphemeral(at('/tmp/bench-2')), true)
+  assert.equal(isEphemeral(at(`${tmpdir()}/bench-3`)), true)
+  // A sibling whose name merely starts the same way is somewhere else.
+  assert.equal(isEphemeral(at(`${tmpdir()}-other${'/'}work`)), false)
+  assert.equal(isEphemeral(at(null)), false)
+  if (process.platform === 'win32') {
+    assert.equal(isEphemeral(at(join(tmpdir(), 'bench-4').toUpperCase())), true)
+    assert.equal(isEphemeral(at(join(tmpdir(), 'bench-5').replaceAll('\\', '/'))), true)
+  }
+})
